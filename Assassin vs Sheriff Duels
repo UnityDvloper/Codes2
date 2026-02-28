@@ -1,0 +1,764 @@
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║           CIMENTO HUB — ESP + HITBOX                    ║
+-- ║  • ESP Inimigo  (Highlight + Billboard + Tracer)        ║
+-- ║  • ESP Amigo    (Highlight + Billboard + Tracer)        ║
+-- ║  • Hitbox Expander apenas em inimigos                   ║
+-- ║  • Detecção de Time (Team1/Team2 ou sem time = lobby)   ║
+-- ║  • Hitbox volta ao normal no lobby / ao fechar          ║
+-- ╚══════════════════════════════════════════════════════════╝
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Teams            = game:GetService("Teams")
+local LocalPlayer      = Players.LocalPlayer
+local Camera           = workspace.CurrentCamera
+
+-- ══════════════════════════════════════════════
+--  ESTADO GLOBAL
+-- ══════════════════════════════════════════════
+local Estado = {
+    -- ESP
+    espInimigo        = false,
+    espAmigo          = false,
+    espTracersInimigo = true,
+    espTracersAmigo   = false,
+
+    -- Cores inimigo
+    espFillInimigo    = Color3.fromRGB(220, 50,  50),
+    espOutlineInimigo = Color3.fromRGB(255, 255, 255),
+    espTracerInimigo  = Color3.fromRGB(220, 50,  50),
+
+    -- Cores amigo
+    espFillAmigo      = Color3.fromRGB(50,  180, 255),
+    espOutlineAmigo   = Color3.fromRGB(255, 255, 255),
+    espTracerAmigo    = Color3.fromRGB(50,  180, 255),
+
+    -- Hitbox
+    hitbox            = false,
+    hitboxSize        = 6,   -- multiplicador (1 = normal)
+    hitboxTransp      = 0.5, -- transparência do HRP (0 = opaco, 1 = invisível)
+
+    hubFechado        = false,
+}
+
+-- ══════════════════════════════════════════════
+--  CONEXÕES
+-- ══════════════════════════════════════════════
+local _consESP    = {}
+local _consHitbox = {}
+
+local function LimparConexoes(lista)
+    for _, c in pairs(lista) do
+        if typeof(c) == "RBXScriptConnection" then c:Disconnect() end
+    end
+    table.clear(lista)
+end
+
+-- ══════════════════════════════════════════════
+--  HELPERS
+-- ══════════════════════════════════════════════
+local function GetHRP(plr)
+    local char = (plr or LocalPlayer).Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function WorldToViewport(pos)
+    local vp, onScreen = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(vp.X, vp.Y), onScreen, vp.Z
+end
+
+-- ══════════════════════════════════════════════
+--  DETECÇÃO DE TIME
+-- ══════════════════════════════════════════════
+
+--[[
+    Lógica:
+    ─ Se LocalPlayer.Team == nil  → lobby (sem time)
+    ─ Se LocalPlayer.Team existe  → em partida
+      · Inimigo = Team diferente do meu E presente no Workspace
+      · Amigo   = mesmo Team E presente no Workspace
+    ─ Jogadores no Workspace = têm Character filho do Workspace
+      (em muitos jogos o char some do workspace quando no lobby)
+]]
+
+local function MeuTime()
+    return LocalPlayer.Team   -- pode ser nil
+end
+
+local function EmPartida()
+    return MeuTime() ~= nil
+end
+
+local function CharNoWorkspace(plr)
+    if not plr.Character then return false end
+    return plr.Character.Parent == workspace
+end
+
+-- Retorna "inimigo", "amigo", ou nil (lobby / sem classificação)
+local function ClassificarJogador(plr)
+    if plr == LocalPlayer then return nil end
+    if not CharNoWorkspace(plr) then return nil end   -- não está em partida
+    local meuTime = MeuTime()
+    if meuTime == nil then return nil end             -- eu estou no lobby
+    if plr.Team == meuTime then
+        return "amigo"
+    else
+        return "inimigo"
+    end
+end
+
+-- ══════════════════════════════════════════════
+--  ESP — DADOS
+-- ══════════════════════════════════════════════
+-- _espDados[playerName] = { tipo="inimigo"|"amigo", hl, gui, line, ... }
+local _espDados = {}
+
+local function NovaLinha(cor)
+    local l         = Drawing.new("Line")
+    l.Visible       = false
+    l.Thickness     = 1.5
+    l.Color         = cor
+    l.Transparency  = 0.15
+    return l
+end
+
+local function RemoverEntradaESP(nome)
+    local d = _espDados[nome]
+    if not d then return end
+    if d.hl  and d.hl.Parent  then d.hl:Destroy() end
+    if d.gui and d.gui.Parent then d.gui:Destroy() end
+    if d.line then pcall(function() d.line:Remove() end) end
+    _espDados[nome] = nil
+end
+
+local function CriarEntradaESP(plr, tipo)
+    RemoverEntradaESP(plr.Name)   -- limpa anterior
+
+    local char = plr.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local isInimigo = (tipo == "inimigo")
+    local fillCor    = isInimigo and Estado.espFillInimigo    or Estado.espFillAmigo
+    local outlineCor = isInimigo and Estado.espOutlineInimigo or Estado.espOutlineAmigo
+    local tracerCor  = isInimigo and Estado.espTracerInimigo  or Estado.espTracerAmigo
+
+    -- ── Highlight
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = fillCor
+    hl.OutlineColor        = outlineCor
+    hl.FillTransparency    = isInimigo and 0.45 or 0.62
+    hl.OutlineTransparency = 0
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee             = char
+    hl.Parent              = char
+
+    -- ── BillboardGui
+    local gui = Instance.new("BillboardGui")
+    gui.Name        = "ESP_BB_"..tipo
+    gui.AlwaysOnTop = true
+    gui.Size        = UDim2.new(0, 120, 0, 56)
+    gui.StudsOffset = Vector3.new(0, 3.2, 0)
+    gui.Adornee     = hrp
+    gui.Parent      = hrp
+
+    local bg = Instance.new("Frame")
+    bg.Size                   = UDim2.new(1,0,1,0)
+    bg.BackgroundColor3       = Color3.fromRGB(8,8,12)
+    bg.BackgroundTransparency = 0.42
+    bg.BorderSizePixel        = 0
+    bg.Parent                 = gui
+    local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0,6); corner.Parent = bg
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color       = outlineCor
+    stroke.Thickness   = 1
+    stroke.Transparency = 0.25
+    stroke.Parent      = bg
+
+    -- tag de tipo (INIMIGO / AMIGO)
+    local lblTipo = Instance.new("TextLabel")
+    lblTipo.Size               = UDim2.new(1,-8,0,12)
+    lblTipo.Position           = UDim2.new(0,4,0,1)
+    lblTipo.BackgroundTransparency = 1
+    lblTipo.Text               = isInimigo and "⚔ INIMIGO" or "🛡 AMIGO"
+    lblTipo.TextColor3         = isInimigo and Color3.fromRGB(255,80,80) or Color3.fromRGB(80,180,255)
+    lblTipo.Font               = Enum.Font.GothamBold
+    lblTipo.TextSize           = 9
+    lblTipo.TextXAlignment     = Enum.TextXAlignment.Center
+    lblTipo.Parent             = bg
+
+    local lblNome = Instance.new("TextLabel")
+    lblNome.Size               = UDim2.new(1,-8,0,14)
+    lblNome.Position           = UDim2.new(0,4,0,13)
+    lblNome.BackgroundTransparency = 1
+    lblNome.Text               = plr.Name
+    lblNome.TextColor3         = fillCor
+    lblNome.Font               = Enum.Font.GothamBold
+    lblNome.TextSize           = 11
+    lblNome.TextXAlignment     = Enum.TextXAlignment.Center
+    lblNome.Parent             = bg
+
+    local baraBg = Instance.new("Frame")
+    baraBg.Size             = UDim2.new(1,-8,0,4)
+    baraBg.Position         = UDim2.new(0,4,0,29)
+    baraBg.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    baraBg.BorderSizePixel  = 0
+    baraBg.Parent           = bg
+    local c1 = Instance.new("UICorner"); c1.CornerRadius = UDim.new(1,0); c1.Parent = baraBg
+
+    local baraFill = Instance.new("Frame")
+    baraFill.Size             = UDim2.new(1,0,1,0)
+    baraFill.BackgroundColor3 = Color3.fromRGB(60,220,100)
+    baraFill.BorderSizePixel  = 0
+    baraFill.Parent           = baraBg
+    local c2 = Instance.new("UICorner"); c2.CornerRadius = UDim.new(1,0); c2.Parent = baraFill
+
+    local lblInfo = Instance.new("TextLabel")
+    lblInfo.Size               = UDim2.new(1,-8,0,12)
+    lblInfo.Position           = UDim2.new(0,4,0,36)
+    lblInfo.BackgroundTransparency = 1
+    lblInfo.Text               = "HP: ? | Dist: ?"
+    lblInfo.TextColor3         = Color3.fromRGB(200,200,200)
+    lblInfo.Font               = Enum.Font.Gotham
+    lblInfo.TextSize           = 10
+    lblInfo.TextXAlignment     = Enum.TextXAlignment.Center
+    lblInfo.Parent             = bg
+
+    local line = NovaLinha(tracerCor)
+
+    _espDados[plr.Name] = {
+        tipo     = tipo,
+        plr      = plr,
+        hl       = hl,
+        gui      = gui,
+        line     = line,
+        stroke   = stroke,
+        baraFill = baraFill,
+        lblNome  = lblNome,
+        lblInfo  = lblInfo,
+    }
+end
+
+local function LimparTodoESP()
+    for nome, _ in pairs(_espDados) do
+        RemoverEntradaESP(nome)
+    end
+end
+
+-- ══════════════════════════════════════════════
+--  ESP — MOTOR
+-- ══════════════════════════════════════════════
+local function IniciarESP()
+    LimparConexoes(_consESP)
+    LimparTodoESP()
+
+    -- scan inicial de todos os jogadores
+    local function ScanJogadores()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            local tipo = ClassificarJogador(plr)
+            if tipo == "inimigo" and Estado.espInimigo then
+                CriarEntradaESP(plr, "inimigo")
+            elseif tipo == "amigo" and Estado.espAmigo then
+                CriarEntradaESP(plr, "amigo")
+            else
+                RemoverEntradaESP(plr.Name)
+            end
+        end
+    end
+
+    ScanJogadores()
+
+    -- Quando um jogador aparece/muda de personagem
+    local function OnChar(plr)
+        task.wait(0.6)
+        if Estado.hubFechado then return end
+        local tipo = ClassificarJogador(plr)
+        if tipo == "inimigo" and Estado.espInimigo then
+            CriarEntradaESP(plr, "inimigo")
+        elseif tipo == "amigo" and Estado.espAmigo then
+            CriarEntradaESP(plr, "amigo")
+        else
+            RemoverEntradaESP(plr.Name)
+        end
+    end
+
+    table.insert(_consESP, Players.PlayerAdded:Connect(function(plr)
+        table.insert(_consESP, plr.CharacterAdded:Connect(function() OnChar(plr) end))
+        task.wait(0.6); OnChar(plr)
+    end))
+    table.insert(_consESP, Players.PlayerRemoving:Connect(function(plr)
+        RemoverEntradaESP(plr.Name)
+    end))
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            table.insert(_consESP, plr.CharacterAdded:Connect(function() OnChar(plr) end))
+        end
+    end
+
+    -- Rescan quando MEU time muda (entrou/saiu de partida)
+    table.insert(_consESP, LocalPlayer:GetPropertyChangedSignal("Team"):Connect(function()
+        task.wait(0.5)
+        ScanJogadores()
+    end))
+
+    -- Loop de render: vida, distância, tracers, visibilidade
+    table.insert(_consESP, RunService.RenderStepped:Connect(function()
+        if Estado.hubFechado then return end
+
+        -- re-scan se algum jogador mudou de workspace (entrou/saiu de partida)
+        -- (leve, apenas verifica se a entrada existe e se o char ainda está no workspace)
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == LocalPlayer then continue end
+            local tipo = ClassificarJogador(plr)
+            local temDado = _espDados[plr.Name]
+
+            if tipo == "inimigo" and Estado.espInimigo then
+                if not temDado or temDado.tipo ~= "inimigo" then CriarEntradaESP(plr,"inimigo") end
+            elseif tipo == "amigo" and Estado.espAmigo then
+                if not temDado or temDado.tipo ~= "amigo" then CriarEntradaESP(plr,"amigo") end
+            else
+                if temDado then RemoverEntradaESP(plr.Name) end
+            end
+        end
+
+        local myHRP = GetHRP()
+        local tracerOrigem
+        if myHRP then
+            local sp, onSc, depth = WorldToViewport(myHRP.Position)
+            tracerOrigem = (onSc and depth > 0) and sp
+                or Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+        else
+            tracerOrigem = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+        end
+
+        for _, d in pairs(_espDados) do
+            local plr  = d.plr
+            if not plr or not plr.Character then continue end
+            local char = plr.Character
+            local hrp  = char:FindFirstChild("HumanoidRootPart")
+            local hum  = char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then continue end
+
+            -- visibilidade do ESP baseada no toggle
+            local visivel = (d.tipo == "inimigo" and Estado.espInimigo)
+                         or (d.tipo == "amigo"   and Estado.espAmigo)
+            if d.hl  and d.hl.Parent  then d.hl.Enabled = visivel end
+            if d.gui and d.gui.Parent then d.gui.Enabled = visivel end
+
+            if not visivel then
+                if d.line then d.line.Visible = false end
+                continue
+            end
+
+            -- HP e distância
+            local dist  = myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0
+            local hp    = math.floor(hum.Health)
+            local maxHp = math.floor(hum.MaxHealth)
+            local pct   = maxHp > 0 and (hp / maxHp) or 0
+
+            local barCor = pct > 0.6 and Color3.fromRGB(60,220,100)
+                        or pct > 0.3 and Color3.fromRGB(255,190,40)
+                        or              Color3.fromRGB(220,55,55)
+
+            if d.baraFill and d.baraFill.Parent then
+                d.baraFill.Size             = UDim2.new(math.clamp(pct,0,1),0,1,0)
+                d.baraFill.BackgroundColor3 = barCor
+            end
+            if d.lblInfo and d.lblInfo.Parent then
+                d.lblInfo.Text = "HP "..hp.."/"..maxHp.."  |  "..dist.."m"
+            end
+
+            -- Tracers
+            local usarTracer = (d.tipo == "inimigo" and Estado.espTracersInimigo)
+                            or (d.tipo == "amigo"   and Estado.espTracersAmigo)
+            if d.line then
+                local sp, onScreen, depth = WorldToViewport(hrp.Position)
+                if usarTracer and onScreen and depth > 0 then
+                    local tracerCor = d.tipo == "inimigo"
+                        and Estado.espTracerInimigo or Estado.espTracerAmigo
+                    d.line.From    = tracerOrigem
+                    d.line.To      = sp
+                    d.line.Color   = tracerCor
+                    d.line.Visible = true
+                else
+                    d.line.Visible = false
+                end
+            end
+        end
+    end))
+end
+
+local function PararESP()
+    LimparConexoes(_consESP)
+    LimparTodoESP()
+end
+
+-- ══════════════════════════════════════════════
+--  HITBOX EXPANDER
+-- ══════════════════════════════════════════════
+--[[
+    Salva o tamanho original de cada BasePart do char inimigo
+    e aplica o novo tamanho. Quando o hitbox for desligado ou
+    o jogador entrar no lobby, restaura.
+]]
+
+-- _hitboxBackup[playerName][partName] = Vector3 (tamanho original)
+local _hitboxBackup = {}
+
+local function RestaurarHitboxJogador(plr)
+    local backup = _hitboxBackup[plr.Name]
+    if not backup then return end
+    local char = plr.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            if backup.hrpSize           then hrp.Size                      = backup.hrpSize        end
+            if backup.transparency      then hrp.Transparency              = backup.transparency   end
+            if backup.localTransp       then hrp.LocalTransparencyModifier = backup.localTransp    end
+            if backup.castShadow ~= nil then hrp.CastShadow                = backup.castShadow     end
+        end
+    end
+    _hitboxBackup[plr.Name] = nil
+end
+
+local function AplicarHitboxJogador(plr, mult)
+    local char = plr and plr.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if not _hitboxBackup[plr.Name] then
+        -- salva estado original ANTES de qualquer alteração
+        _hitboxBackup[plr.Name] = {
+            hrpSize      = hrp.Size,
+            transparency = hrp.Transparency,
+            localTransp  = hrp.LocalTransparencyModifier,
+            castShadow   = hrp.CastShadow,
+        }
+    end
+    local orig = _hitboxBackup[plr.Name].hrpSize
+    hrp.Size                      = orig * mult
+    hrp.Transparency              = Estado.hitboxTransp  -- ajustável pelo slider
+    hrp.LocalTransparencyModifier = 0     -- garante visibilidade no cliente
+    hrp.CastShadow                = false -- evita sombra estranha do cubo expandido
+end
+
+local function RestaurarTodosHitbox()
+    for nome, _ in pairs(_hitboxBackup) do
+        local plr = Players:FindFirstChild(nome)
+        if plr then RestaurarHitboxJogador(plr) end
+    end
+    table.clear(_hitboxBackup)
+end
+
+local function IniciarHitbox()
+    LimparConexoes(_consHitbox)
+    RestaurarTodosHitbox()
+    if not Estado.hitbox then return end
+
+    local function ScanHitbox()
+        -- Só aplica em inimigos E apenas se estiver em partida
+        if not EmPartida() then
+            RestaurarTodosHitbox()
+            return
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if ClassificarJogador(plr) == "inimigo" then
+                AplicarHitboxJogador(plr, Estado.hitboxSize)
+            else
+                -- garante restauração caso mudou de time
+                RestaurarHitboxJogador(plr)
+            end
+        end
+    end
+
+    -- Aplica imediatamente
+    ScanHitbox()
+
+    -- Mantém aplicado a cada frame (reaplicar se personagem respawnou)
+    table.insert(_consHitbox, RunService.Heartbeat:Connect(function()
+        if not Estado.hitbox then return end
+        if not EmPartida() then
+            RestaurarTodosHitbox()
+            return
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if ClassificarJogador(plr) == "inimigo" then
+                AplicarHitboxJogador(plr, Estado.hitboxSize)
+            end
+        end
+    end))
+
+    -- Quando MEU time muda → pode ter entrado/saído de partida
+    table.insert(_consHitbox, LocalPlayer:GetPropertyChangedSignal("Team"):Connect(function()
+        task.wait(0.3)
+        if not EmPartida() then
+            RestaurarTodosHitbox()
+        else
+            ScanHitbox()
+        end
+    end))
+
+    -- Jogador removido = restaurar (por segurança)
+    table.insert(_consHitbox, Players.PlayerRemoving:Connect(function(plr)
+        RestaurarHitboxJogador(plr)
+    end))
+end
+
+local function PararHitbox()
+    Estado.hitbox = false
+    LimparConexoes(_consHitbox)
+    RestaurarTodosHitbox()
+end
+
+-- ══════════════════════════════════════════════
+--  PARA TUDO
+-- ══════════════════════════════════════════════
+local function PararTudo()
+    Estado.hubFechado    = true
+    Estado.espInimigo    = false
+    Estado.espAmigo      = false
+    PararESP()
+    PararHitbox()
+end
+
+-- ══════════════════════════════════════════════
+--  MONTA O HUB
+-- ══════════════════════════════════════════════
+local function MontarHub()
+    local ok, Hub = pcall(function()
+        return loadstring(game:HttpGet(
+            "https://raw.githubusercontent.com/UnityDvloper/CodesPrivate/refs/heads/main/Hub?token=GHSAT0AAAAAADWS7PA66RBJ63RSLRGT72VY2NC3YZA",
+            true
+        ))()
+    end)
+    if not ok or not Hub then
+        warn("[CimentoHub] Falha ao carregar modulo:", Hub)
+        return
+    end
+
+    local hub = Hub.novo("Cimento ESP", "Escuro")
+
+    -- ╔══════════════════════════════════════════╗
+    -- ║  ABA: ESP                                ║
+    -- ╚══════════════════════════════════════════╝
+    local abaESP = hub:CriarAba("ESP", "👁️")
+
+    -- ── INIMIGO ──────────────────────────────────
+    abaESP:CriarSecao("ESP Inimigo")
+
+    local espIniToggle = abaESP:CriarToggle("ESP Inimigo", Estado.espInimigo, function(v)
+        Estado.espInimigo = v
+        if v then
+            IniciarESP()
+            hub:Notificar("ESP Inimigo", "Ativado!", "sucesso", 2)
+        else
+            -- apenas remove os inimigos do ESP
+            for _, plr in ipairs(Players:GetPlayers()) do
+                local d = _espDados[plr.Name]
+                if d and d.tipo == "inimigo" then RemoverEntradaESP(plr.Name) end
+            end
+            hub:Notificar("ESP Inimigo", "Desativado", "info", 2)
+            -- se amigo também está off, para tudo
+            if not Estado.espAmigo then LimparConexoes(_consESP) end
+        end
+    end)
+
+    local tracerIniToggle = abaESP:CriarToggle("Tracers Inimigo", Estado.espTracersInimigo, function(v)
+        Estado.espTracersInimigo = v
+    end)
+
+    abaESP:CriarSecao("Cores Inimigo")
+
+    local cpFillIni = abaESP:CriarColorPicker("Fill (silhueta)", Estado.espFillInimigo, function(cor)
+        Estado.espFillInimigo = cor
+        for _, d in pairs(_espDados) do
+            if d.tipo == "inimigo" then
+                if d.hl      and d.hl.Parent      then d.hl.FillColor      = cor end
+                if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
+            end
+        end
+    end)
+
+    local cpOutlineIni = abaESP:CriarColorPicker("Outline (contorno)", Estado.espOutlineInimigo, function(cor)
+        Estado.espOutlineInimigo = cor
+        for _, d in pairs(_espDados) do
+            if d.tipo == "inimigo" then
+                if d.hl     and d.hl.Parent     then d.hl.OutlineColor = cor end
+                if d.stroke and d.stroke.Parent then d.stroke.Color    = cor end
+            end
+        end
+    end)
+
+    local cpTracerIni = abaESP:CriarColorPicker("Tracer (linha)", Estado.espTracerInimigo, function(cor)
+        Estado.espTracerInimigo = cor
+        for _, d in pairs(_espDados) do
+            if d.tipo == "inimigo" and d.line then d.line.Color = cor end
+        end
+    end)
+
+    -- ── AMIGO ─────────────────────────────────────
+    abaESP:CriarSecao("ESP Amigo")
+
+    local espAmiToggle = abaESP:CriarToggle("ESP Amigo", Estado.espAmigo, function(v)
+        Estado.espAmigo = v
+        if v then
+            IniciarESP()
+            hub:Notificar("ESP Amigo", "Ativado!", "sucesso", 2)
+        else
+            for _, plr in ipairs(Players:GetPlayers()) do
+                local d = _espDados[plr.Name]
+                if d and d.tipo == "amigo" then RemoverEntradaESP(plr.Name) end
+            end
+            hub:Notificar("ESP Amigo", "Desativado", "info", 2)
+            if not Estado.espInimigo then LimparConexoes(_consESP) end
+        end
+    end)
+
+    local tracerAmiToggle = abaESP:CriarToggle("Tracers Amigo", Estado.espTracersAmigo, function(v)
+        Estado.espTracersAmigo = v
+    end)
+
+    abaESP:CriarSecao("Cores Amigo")
+
+    local cpFillAmi = abaESP:CriarColorPicker("Fill (silhueta)", Estado.espFillAmigo, function(cor)
+        Estado.espFillAmigo = cor
+        for _, d in pairs(_espDados) do
+            if d.tipo == "amigo" then
+                if d.hl      and d.hl.Parent      then d.hl.FillColor      = cor end
+                if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
+            end
+        end
+    end)
+
+    local cpOutlineAmi = abaESP:CriarColorPicker("Outline (contorno)", Estado.espOutlineAmigo, function(cor)
+        Estado.espOutlineAmigo = cor
+        for _, d in pairs(_espDados) do
+            if d.tipo == "amigo" then
+                if d.hl     and d.hl.Parent     then d.hl.OutlineColor = cor end
+                if d.stroke and d.stroke.Parent then d.stroke.Color    = cor end
+            end
+        end
+    end)
+
+    local cpTracerAmi = abaESP:CriarColorPicker("Tracer (linha)", Estado.espTracerAmigo, function(cor)
+        Estado.espTracerAmigo = cor
+        for _, d in pairs(_espDados) do
+            if d.tipo == "amigo" and d.line then d.line.Color = cor end
+        end
+    end)
+
+    -- ╔══════════════════════════════════════════╗
+    -- ║  ABA: HITBOX                             ║
+    -- ╚══════════════════════════════════════════╝
+    local abaHitbox = hub:CriarAba("Hitbox", "🎯")
+    abaHitbox:CriarSecao("Hitbox Expander")
+
+    abaHitbox:CriarTexto(
+        "Aplica apenas em INIMIGOS.\n"..
+        "No lobby a hitbox volta ao normal automaticamente."
+    )
+
+    local hitboxToggle = abaHitbox:CriarToggle("Hitbox Expander", Estado.hitbox, function(v)
+        Estado.hitbox = v
+        if v then
+            IniciarHitbox()
+            hub:Notificar("Hitbox", "Ativado (tamanho x"..Estado.hitboxSize..")", "sucesso", 2.5)
+        else
+            PararHitbox()
+            hub:Notificar("Hitbox", "Desativado - tamanhos restaurados", "info", 2.5)
+        end
+    end)
+
+    abaHitbox:CriarSlider("Tamanho (multiplicador)", 2, 20, Estado.hitboxSize, function(v)
+        Estado.hitboxSize = v
+        if Estado.hitbox then
+            -- reaplicar com novo tamanho
+            RestaurarTodosHitbox()
+            if EmPartida() then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if ClassificarJogador(plr) == "inimigo" then
+                        AplicarHitboxJogador(plr, v)
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Transparência do HRP (0 = opaco, 100 = invisível)
+    abaHitbox:CriarSlider("Transparência do HRP (0=opaco)", 0, 100, math.floor(Estado.hitboxTransp * 100), function(v)
+        Estado.hitboxTransp = v / 100
+        if Estado.hitbox and EmPartida() then
+            -- aplica a transparência nos HRPs já expandidos sem resetar tamanho
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if ClassificarJogador(plr) == "inimigo" then
+                    local char = plr.Character
+                    if char then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            hrp.Transparency              = Estado.hitboxTransp
+                            hrp.LocalTransparencyModifier = 0
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    abaHitbox:CriarSecao("Status")
+
+    -- Label de status do time
+    local lblStatus = abaHitbox:CriarTexto("Verificando time...")
+
+    -- Atualiza label a cada segundo
+    task.spawn(function()
+        while not Estado.hubFechado do
+            local meuTime = MeuTime()
+            if meuTime then
+                local inimigos = {}
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if ClassificarJogador(plr) == "inimigo" then
+                        table.insert(inimigos, plr.Name)
+                    end
+                end
+                local txt = "Time: "..meuTime.Name.."\n"
+                if #inimigos > 0 then
+                    txt = txt.."Inimigos ("..#inimigos.."):\n"
+                    for _, n in ipairs(inimigos) do txt = txt.."  • "..n.."\n" end
+                else
+                    txt = txt.."Nenhum inimigo detectado"
+                end
+                lblStatus:Definir(txt)
+            else
+                lblStatus:Definir("Lobby — sem time atribuído\nHitbox será restaurada.")
+            end
+            task.wait(1)
+        end
+    end)
+
+    -- ╔══════════════════════════════════════════╗
+    -- ║  ABA: CONFIG                             ║
+    -- ╚══════════════════════════════════════════╝
+    local abaConfig = hub:CriarAba("Config", "⚙️")
+    abaConfig:CriarSecao("Aparencia")
+    hub:CriarDropdownTemas(abaConfig)
+    abaConfig:CriarSecao("Info")
+    abaConfig:CriarTexto(
+        "Cimento ESP v1.0\n"..
+        "ESP Inimigo + Amigo\n"..
+        "Hitbox Expander (inimigos)\n"..
+        "Detecção automática de time"
+    )
+
+    -- Ao fechar o hub
+    hub:AoFechar(function() PararTudo() end)
+
+    return hub
+end
+
+-- ══════════════════════════════════════════════
+--  INICIALIZAÇÃO
+-- ══════════════════════════════════════════════
+local hubAtual = MontarHub()
