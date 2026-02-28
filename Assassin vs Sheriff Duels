@@ -530,7 +530,7 @@ end
 local function MontarHub()
     local ok, Hub = pcall(function()
         return loadstring(game:HttpGet(
-            "https://raw.githubusercontent.com/UnityDvloper/CodesPrivate/refs/heads/main/Hub?token=GHSAT0AAAAAADWS7PA66RBJ63RSLRGT72VY2NC3YZA",
+            "https://raw.githubusercontent.com/UnityDvloper/Codes/refs/heads/main/Hub",
             true
         ))()
     end)
