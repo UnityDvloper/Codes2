@@ -1,9 +1,9 @@
-local Players          = game:GetService("Players")
-local RunService       = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer      = Players.LocalPlayer
-local Camera           = workspace.CurrentCamera
+local LocalPlayer       = Players.LocalPlayer
+local Camera            = workspace.CurrentCamera
 
 -- ══════════════════════════════════════════════
 --  ESTADO
@@ -13,15 +13,20 @@ local Estado = {
     espTracers      = true,
     espTracerGross  = 4,
     espTracerTransp = 0.1,
-    corESP          = Color3.fromRGB(255, 50, 50),
     hubFechado      = false,
 
-    walkspeed       = 16,
-    fly             = false,
-    voarVel         = 50,
-    noclip          = false,
+    -- cores por time (padrões)
+    corInmate   = Color3.fromRGB(255, 140,   0),  -- laranja
+    corGuard    = Color3.fromRGB( 50, 130, 255),  -- azul
+    corCriminal = Color3.fromRGB(255,  50,  50),  -- vermelho
+    corOutro    = Color3.fromRGB(255, 255, 255),  -- branco
 
-    prenderAuto     = false,
+    walkspeed   = 16,
+    fly         = false,
+    voarVel     = 50,
+    noclip      = false,
+
+    prenderAuto = false,
 }
 
 local _consESP  = {}
@@ -53,6 +58,16 @@ local function WorldToViewport(pos)
     return Vector2.new(vp.X, vp.Y), onScreen, vp.Z
 end
 
+-- retorna a cor ESP de acordo com o time do jogador
+local function CorDoTime(plr)
+    if not plr or not plr.Team then return Estado.corOutro end
+    local nome = plr.Team.Name
+    if nome == "Inmates"   then return Estado.corInmate   end
+    if nome == "Guards"    then return Estado.corGuard    end
+    if nome == "Criminals" then return Estado.corCriminal end
+    return Estado.corOutro
+end
+
 -- ══════════════════════════════════════════════
 --  CONTROLES MOBILE PARA O FLY
 -- ══════════════════════════════════════════════
@@ -63,12 +78,12 @@ local virtualKeys = {
 
 local function IsKeyDown(keyCode)
     if UserInputService:IsKeyDown(keyCode) then return true end
-    if keyCode == Enum.KeyCode.W          then return virtualKeys.W     end
-    if keyCode == Enum.KeyCode.A          then return virtualKeys.A     end
-    if keyCode == Enum.KeyCode.S          then return virtualKeys.S     end
-    if keyCode == Enum.KeyCode.D          then return virtualKeys.D     end
-    if keyCode == Enum.KeyCode.Space      then return virtualKeys.Space end
-    if keyCode == Enum.KeyCode.LeftShift  then return virtualKeys.Shift end
+    if keyCode == Enum.KeyCode.W         then return virtualKeys.W     end
+    if keyCode == Enum.KeyCode.A         then return virtualKeys.A     end
+    if keyCode == Enum.KeyCode.S         then return virtualKeys.S     end
+    if keyCode == Enum.KeyCode.D         then return virtualKeys.D     end
+    if keyCode == Enum.KeyCode.Space     then return virtualKeys.Space end
+    if keyCode == Enum.KeyCode.LeftShift then return virtualKeys.Shift end
     return false
 end
 
@@ -84,16 +99,14 @@ end
 
 local function CriarBotoesMobile()
     RemoverBotoesMobile()
-
     local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-
     local gui = Instance.new("ScreenGui")
-    gui.Name            = "FlyMobileControls"
-    gui.ResetOnSpawn    = false
-    gui.IgnoreGuiInset  = true
-    gui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
-    gui.Parent          = playerGui
-    _flyMobileGui       = gui
+    gui.Name           = "FlyMobileControls"
+    gui.ResetOnSpawn   = false
+    gui.IgnoreGuiInset = true
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent         = playerGui
+    _flyMobileGui      = gui
 
     local BTN_SIZE = 64
     local ALPHA    = 0.35
@@ -111,23 +124,19 @@ local function CriarBotoesMobile()
         btn.TextSize               = 20
         btn.AutoButtonColor        = false
         btn.Parent                 = parent
-
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0, 10)
         corner.Parent       = btn
-
         local stroke = Instance.new("UIStroke")
         stroke.Color        = Color3.fromRGB(255, 80, 80)
         stroke.Thickness    = 1.5
         stroke.Transparency = 0.4
         stroke.Parent       = btn
-
         local function setActive(on)
             virtualKeys[key]           = on
             btn.BackgroundTransparency = on and 0.05 or ALPHA
             stroke.Transparency        = on and 0    or 0.4
         end
-
         btn.InputBegan:Connect(function(inp)
             if inp.UserInputType == Enum.UserInputType.Touch
             or inp.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -140,7 +149,6 @@ local function CriarBotoesMobile()
                 setActive(false)
             end
         end)
-
         return btn
     end
 
@@ -154,7 +162,6 @@ local function CriarBotoesMobile()
     criarBotao(gui, "<",  leftX,              row2Y, "A")
     criarBotao(gui, "v",  leftX + bS + pad,   row2Y, "S")
     criarBotao(gui, ">",  leftX + (bS+pad)*2, row2Y, "D")
-
     local vp     = Camera.ViewportSize
     local rightX = vp.X - bS - pad
     criarBotao(gui, "+", rightX, row1Y, "Space")
@@ -167,7 +174,7 @@ end
 local function RemoverEntradaESP(nome)
     local d = _espDados[nome]
     if not d then return end
-    if d.hl  and d.hl.Parent  then d.hl:Destroy() end
+    if d.hl  and d.hl.Parent  then d.hl:Destroy()  end
     if d.gui and d.gui.Parent then d.gui:Destroy() end
     if d.line then pcall(function() d.line:Remove() end) end
     _espDados[nome] = nil
@@ -180,7 +187,7 @@ local function CriarEntradaESP(plr)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    local cor = Estado.corESP
+    local cor = CorDoTime(plr)
 
     local hl = Instance.new("Highlight")
     hl.FillColor           = cor
@@ -193,7 +200,7 @@ local function CriarEntradaESP(plr)
 
     local gui = Instance.new("BillboardGui")
     gui.AlwaysOnTop = true
-    gui.Size        = UDim2.new(0, 130, 0, 56)
+    gui.Size        = UDim2.new(0, 130, 0, 58)
     gui.StudsOffset = Vector3.new(0, 3.2, 0)
     gui.Adornee     = hrp
     gui.Parent      = hrp
@@ -214,20 +221,44 @@ local function CriarEntradaESP(plr)
     stroke.Transparency = 0.25
     stroke.Parent       = bg
 
+    -- nome do jogador + apelido (DisplayName)
+    local apelido   = plr.DisplayName
+    local nomeTexto = plr.Name
+    -- mostra "Apelido (username)" se o apelido for diferente do username
+    if apelido ~= nomeTexto then
+        nomeTexto = apelido .. " (" .. plr.Name .. ")"
+    end
+
     local lblNome = Instance.new("TextLabel")
-    lblNome.Size                   = UDim2.new(1,-8,0,16)
-    lblNome.Position               = UDim2.new(0,4,0,4)
+    lblNome.Size                   = UDim2.new(1,-8,0,14)
+    lblNome.Position               = UDim2.new(0,4,0,2)
     lblNome.BackgroundTransparency = 1
-    lblNome.Text                   = plr.Name
+    lblNome.Text                   = nomeTexto
     lblNome.TextColor3             = cor
     lblNome.Font                   = Enum.Font.GothamBold
-    lblNome.TextSize               = 12
+    lblNome.TextSize               = 10
     lblNome.TextXAlignment         = Enum.TextXAlignment.Center
+    lblNome.TextScaled             = false
+    lblNome.TextWrapped            = true
     lblNome.Parent                 = bg
 
+    -- nome do time
+    local teamName = (plr.Team and plr.Team.Name) or "Sem Time"
+    local lblTime = Instance.new("TextLabel")
+    lblTime.Size                   = UDim2.new(1,-8,0,10)
+    lblTime.Position               = UDim2.new(0,4,0,17)
+    lblTime.BackgroundTransparency = 1
+    lblTime.Text                   = "[" .. teamName .. "]"
+    lblTime.TextColor3             = cor
+    lblTime.Font                   = Enum.Font.GothamBold
+    lblTime.TextSize               = 9
+    lblTime.TextXAlignment         = Enum.TextXAlignment.Center
+    lblTime.Parent                 = bg
+
+    -- barra de HP
     local baraBg = Instance.new("Frame")
     baraBg.Size             = UDim2.new(1,-8,0,4)
-    baraBg.Position         = UDim2.new(0,4,0,24)
+    baraBg.Position         = UDim2.new(0,4,0,29)
     baraBg.BackgroundColor3 = Color3.fromRGB(30,30,30)
     baraBg.BorderSizePixel  = 0
     baraBg.Parent           = bg
@@ -244,14 +275,15 @@ local function CriarEntradaESP(plr)
     c2.CornerRadius = UDim.new(1,0)
     c2.Parent       = baraFill
 
+    -- info HP / distância
     local lblInfo = Instance.new("TextLabel")
-    lblInfo.Size                   = UDim2.new(1,-8,0,12)
-    lblInfo.Position               = UDim2.new(0,4,0,32)
+    lblInfo.Size                   = UDim2.new(1,-8,0,11)
+    lblInfo.Position               = UDim2.new(0,4,0,36)
     lblInfo.BackgroundTransparency = 1
     lblInfo.Text                   = "HP: ? | Dist: ?"
     lblInfo.TextColor3             = Color3.fromRGB(200,200,200)
     lblInfo.Font                   = Enum.Font.Gotham
-    lblInfo.TextSize               = 10
+    lblInfo.TextSize               = 9
     lblInfo.TextXAlignment         = Enum.TextXAlignment.Center
     lblInfo.Parent                 = bg
 
@@ -269,6 +301,7 @@ local function CriarEntradaESP(plr)
         stroke   = stroke,
         baraFill = baraFill,
         lblNome  = lblNome,
+        lblTime  = lblTime,
         lblInfo  = lblInfo,
     }
 end
@@ -276,6 +309,36 @@ end
 local function LimparTodoESP()
     for nome in pairs(_espDados) do
         RemoverEntradaESP(nome)
+    end
+end
+
+-- atualiza as cores de todas as entradas de um time específico
+local function AtualizarCoresTime(nomeTime)
+    for _, d in pairs(_espDados) do
+        if not d.plr then continue end
+        local tn = d.plr.Team and d.plr.Team.Name
+        if tn ~= nomeTime then continue end
+        local cor = CorDoTime(d.plr)
+        if d.hl     and d.hl.Parent      then d.hl.FillColor        = cor end
+        if d.stroke and d.stroke.Parent  then d.stroke.Color        = cor end
+        if d.line                         then d.line.Color          = cor end
+        if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
+        if d.lblTime and d.lblTime.Parent then d.lblTime.TextColor3 = cor end
+    end
+end
+
+-- atualiza entradas de jogadores sem time ou de times desconhecidos
+local function AtualizarCoresOutros()
+    for _, d in pairs(_espDados) do
+        if not d.plr then continue end
+        local tn = d.plr.Team and d.plr.Team.Name
+        if tn == "Inmates" or tn == "Guards" or tn == "Criminals" then continue end
+        local cor = Estado.corOutro
+        if d.hl     and d.hl.Parent      then d.hl.FillColor        = cor end
+        if d.stroke and d.stroke.Parent  then d.stroke.Color        = cor end
+        if d.line                         then d.line.Color          = cor end
+        if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
+        if d.lblTime and d.lblTime.Parent then d.lblTime.TextColor3 = cor end
     end
 end
 
@@ -323,6 +386,7 @@ local function IniciarESP()
     table.insert(_consESP, RunService.RenderStepped:Connect(function()
         if Estado.hubFechado then return end
 
+        -- cria ESP pra quem não tem ainda
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr == LocalPlayer then continue end
             if plr.Character and not _espDados[plr.Name] then
@@ -350,8 +414,22 @@ local function IniciarESP()
             local hum  = char:FindFirstChildOfClass("Humanoid")
             if not hrp or not hum then continue end
 
-            if d.hl  and d.hl.Parent  then d.hl.Enabled  = Estado.esp end
-            if d.gui and d.gui.Parent then d.gui.Enabled = Estado.esp end
+            -- cor dinâmica por time (atualiza se o jogador mudou de time)
+            local cor = CorDoTime(plr)
+
+            if d.hl and d.hl.Parent then
+                d.hl.Enabled   = Estado.esp
+                d.hl.FillColor = cor
+            end
+            if d.gui    and d.gui.Parent    then d.gui.Enabled       = Estado.esp end
+            if d.stroke and d.stroke.Parent then d.stroke.Color      = cor        end
+            if d.line                        then d.line.Color        = cor        end
+            if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor     end
+            if d.lblTime and d.lblTime.Parent then
+                d.lblTime.TextColor3 = cor
+                local tn = (plr.Team and plr.Team.Name) or "Sem Time"
+                d.lblTime.Text = "[" .. tn .. "]"
+            end
 
             if not Estado.esp then
                 if d.line then d.line.Visible = false end
@@ -380,7 +458,6 @@ local function IniciarESP()
                 if Estado.espTracers and onScreen and depth > 0 then
                     d.line.From         = tracerOrigem
                     d.line.To           = sp
-                    d.line.Color        = Estado.corESP
                     d.line.Thickness    = Estado.espTracerGross
                     d.line.Transparency = Estado.espTracerTransp
                     d.line.Visible      = true
@@ -434,9 +511,7 @@ local function PararFly()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then
             for _, v in ipairs(hrp:GetChildren()) do
-                if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then
-                    v:Destroy()
-                end
+                if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then v:Destroy() end
             end
         end
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -451,10 +526,7 @@ end
 local function IniciarFly()
     PararFly()
     Estado.fly = true
-
-    if UserInputService.TouchEnabled then
-        CriarBotoesMobile()
-    end
+    if UserInputService.TouchEnabled then CriarBotoesMobile() end
 
     local char = GetChar()
     local hrp  = char and char:FindFirstChild("HumanoidRootPart")
@@ -478,29 +550,21 @@ local function IniciarFly()
 
     _flyHB = RunService.Heartbeat:Connect(function()
         if not Estado.fly then PararFly(); return end
-
         local hrp2 = GetHRP()
-        if not hrp2 or not bv.Parent or not bg.Parent then
-            PararFly(); return
-        end
+        if not hrp2 or not bv.Parent or not bg.Parent then PararFly(); return end
 
         local cam = Camera.CFrame
         local dir = Vector3.zero
-
-        if IsKeyDown(Enum.KeyCode.W)         then dir = dir + cam.LookVector      end
-        if IsKeyDown(Enum.KeyCode.S)         then dir = dir - cam.LookVector      end
-        if IsKeyDown(Enum.KeyCode.A)         then dir = dir - cam.RightVector     end
-        if IsKeyDown(Enum.KeyCode.D)         then dir = dir + cam.RightVector     end
-        if IsKeyDown(Enum.KeyCode.Space)     then dir = dir + Vector3.new(0,1,0)  end
-        if IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0)  end
+        if IsKeyDown(Enum.KeyCode.W)         then dir = dir + cam.LookVector     end
+        if IsKeyDown(Enum.KeyCode.S)         then dir = dir - cam.LookVector     end
+        if IsKeyDown(Enum.KeyCode.A)         then dir = dir - cam.RightVector    end
+        if IsKeyDown(Enum.KeyCode.D)         then dir = dir + cam.RightVector    end
+        if IsKeyDown(Enum.KeyCode.Space)     then dir = dir + Vector3.new(0,1,0) end
+        if IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
 
         if dir.Magnitude > 0 then dir = dir.Unit end
         bv.Velocity = dir * Estado.voarVel
-
-        bg.CFrame = CFrame.new(
-            Vector3.zero,
-            Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z)
-        )
+        bg.CFrame   = CFrame.new(Vector3.zero, Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z))
     end)
 end
 
@@ -514,21 +578,20 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 -- ══════════════════════════════════════════════
---  MONTA O HUB  (deve vir ANTES do Prender Auto)
+--  MONTA O HUB
 -- ══════════════════════════════════════════════
 local site = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/UnityDvloper/Codes/refs/heads/main/Hub",
     true
 ))()
 
-local hub = site.novo("ESP Universal", "Escuro", "Lento")
+local hub = site.novo("Reboco", "Escuro", "Lento")
 
 -- ══════════════════════════════════════════════
---  PRENDER AUTOMÁTICO  (definido APÓS o hub)
+--  PRENDER AUTOMÁTICO
 -- ══════════════════════════════════════════════
 local _prenderThread = nil
 
--- pega o remote uma única vez e reutiliza
 local _arrestRemote = nil
 local function GetRemote()
     if _arrestRemote and _arrestRemote.Parent then return _arrestRemote end
@@ -548,108 +611,86 @@ local function GetCriminosos()
     return lista
 end
 
-local function EhInmate(plr)  return plr and plr.Team and plr.Team.Name == "Inmates"   end
 local function EhCriminal(plr) return plr and plr.Team and plr.Team.Name == "Criminals" end
 
--- posição salva ao ativar, para restaurar ao desativar/fechar hub
-local _posAntes = nil
+-- ══════════════════════════════════════════════
+--  RESPAWN RÁPIDO
+-- ══════════════════════════════════════════════
+local function RespawnarPersonagem()
+    local hum = GetHum()
+    if hum then hum.Health = 0 end
 
--- Teleporta o personagem local para um CFrame
-local function TeleportarPara(cf)
-    local hrp = GetHRP()
-    if hrp then hrp.CFrame = cf end
-end
+    local renasceu = false
+    local conn
+    conn = LocalPlayer.CharacterAdded:Connect(function()
+        renasceu = true
+        conn:Disconnect()
+    end)
 
--- Acha um ponto distante de todos os jogadores (fuga durante cooldown)
-local function AcharPontoDistante()
-    local myHRP = GetHRP()
-    if not myHRP then return nil end
-    local base = myHRP.Position
-
-    -- tenta 12 direções aleatórias a 400+ studs de distância
-    local melhor, melhorDist = nil, 0
-    for i = 1, 12 do
-        local ang = (i / 12) * math.pi * 2
-        local candidato = base + Vector3.new(math.cos(ang) * 500, 0, math.sin(ang) * 500)
-
-        -- calcula distância mínima de qualquer jogador nesse ponto
-        local distMin = math.huge
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr == LocalPlayer then continue end
-            local hrp2 = GetHRP(plr)
-            if hrp2 then
-                local d = (hrp2.Position - candidato).Magnitude
-                if d < distMin then distMin = d end
-            end
-        end
-
-        if distMin > melhorDist then
-            melhorDist = distMin
-            melhor = candidato
-        end
+    local inicio = tick()
+    while not renasceu and (tick() - inicio) < 5 do
+        task.wait(0.05)
     end
-
-    return melhor and CFrame.new(melhor + Vector3.new(0, 5, 0)) or nil
+    task.wait(0.5)
 end
 
--- Tenta prender o alvo por até 5 segundos — teleporte + arrest a cada frame
+-- ══════════════════════════════════════════════
+--  TENTAR PRENDER
+--  2s teleportando colado + spammando remote todo frame
+-- ══════════════════════════════════════════════
 local function TentarPrender(alvo)
     if not alvo or not alvo.Parent then return false end
     if not EhCriminal(alvo) then return false end
     local remote = GetRemote()
     if not remote then return false end
 
-    local inicio = tick()
-    local preso  = false
-
+    -- espera o alvo renascer se estiver morto
     while Estado.prenderAuto and not Estado.hubFechado do
-        if not alvo or not alvo.Parent then break end
-        if not EhCriminal(alvo) then preso = EhInmate(alvo); break end
-        if (tick() - inicio) >= 5 then break end
+        if not alvo or not alvo.Parent then return false end
+        if not EhCriminal(alvo) then return false end
+        local hum = GetHum(alvo)
+        local hrp = GetHRP(alvo)
+        if hrp and hum and hum.Health > 0 then break end
+        task.wait(0.2)
+    end
+    if not Estado.prenderAuto or Estado.hubFechado then return false end
 
-        -- teleporta colado no alvo a cada frame
-        local myHRP  = GetHRP()
-        local alvHRP = GetHRP(alvo)
-        if myHRP and alvHRP then
-            myHRP.CFrame = alvHRP.CFrame * CFrame.new(0, 0, -1)
+    local inicio = tick()
+    while (tick() - inicio) < 2 do
+        if not Estado.prenderAuto or Estado.hubFechado then break end
+        if not alvo or not alvo.Parent then break end
+
+        local myHRP2  = GetHRP()
+        local alvHRP2 = GetHRP(alvo)
+        if myHRP2 and alvHRP2 then
+            myHRP2.CFrame = alvHRP2.CFrame * CFrame.new(0, 0, -1)
         end
 
-        -- spamma o arrest a cada frame
         xpcall(function()
             remote:InvokeServer(alvo, 1)
         end, function() end)
 
-        if EhInmate(alvo) then preso = true; break end
-
-        task.wait(0) -- próximo frame, máximo de tentativas
+        task.wait(0)
     end
 
-    return preso
+    return true
 end
 
--- Cooldown após prender: foge para ponto distante, espera 5s, volta pro próximo alvo
+-- ══════════════════════════════════════════════
+--  COOLDOWN — respawna e vai pro próximo
+-- ══════════════════════════════════════════════
 local function ExecutarCooldown()
     if not Estado.prenderAuto or Estado.hubFechado then return end
-
-    hub:Notificar("Auto Prender", "Cooldown — fugindo por 5s...", "info", 5)
-
-    -- teleporta para longe
-    local pontoFuga = AcharPontoDistante()
-    if pontoFuga then
-        TeleportarPara(pontoFuga)
-    end
-
-    -- espera 5 segundos verificando se foi cancelado
-    local inicio = tick()
-    while (tick() - inicio) < 5 do
-        if not Estado.prenderAuto or Estado.hubFechado then return end
-        task.wait(0.1)
-    end
+    hub:Notificar("Auto Prender", "Renascendo...", "sucesso", 2)
+    RespawnarPersonagem()
+    task.wait(0.2)
 end
 
+-- ══════════════════════════════════════════════
+--  LOOP PRINCIPAL
+-- ══════════════════════════════════════════════
 local function LoopPrender()
     local semCrimNotificado = false
-    local primeiroPreso     = false -- controla se já prendeu alguém (cooldown só após 1º preso)
 
     while Estado.prenderAuto and not Estado.hubFechado do
         local criminosos = GetCriminosos()
@@ -657,7 +698,7 @@ local function LoopPrender()
         if #criminosos == 0 then
             if not semCrimNotificado then
                 semCrimNotificado = true
-                hub:Notificar("Auto Prender", "Nenhum Criminoso no server!", "info", 4)
+                hub:Notificar("Auto Prender", "Nenhum Criminal no server!", "info", 4)
             end
             task.wait(0.5)
             continue
@@ -670,20 +711,16 @@ local function LoopPrender()
             if not alvo or not alvo.Parent then continue end
             if not EhCriminal(alvo) then continue end
 
-            hub:Notificar("Auto Prender", "Prendendo: " .. alvo.Name, "aviso", 2)
+            hub:Notificar("Auto Prender", "Indo ate: " .. alvo.Name, "aviso", 2)
 
             local ok = TentarPrender(alvo)
 
             if ok then
-                hub:Notificar("Auto Prender", alvo.Name .. " foi preso!", "sucesso", 3)
-                -- cooldown de 5s com fuga antes de ir pro próximo
                 ExecutarCooldown()
             elseif not alvo or not alvo.Parent then
                 hub:Notificar("Auto Prender", "Jogador saiu do jogo.", "info", 2)
-            elseif EhInmate(alvo) then
-                hub:Notificar("Auto Prender", alvo.Name .. " ja e Inmate.", "info", 2)
             else
-                hub:Notificar("Auto Prender", "Timeout — proximo alvo.", "aviso", 2)
+                hub:Notificar("Auto Prender", alvo.Name .. " nao e Criminal.", "info", 2)
             end
 
             task.wait(0)
@@ -694,12 +731,6 @@ local function LoopPrender()
 end
 
 local function IniciarPrenderAuto()
-    -- salva posição atual antes de começar
-    local myHRP = GetHRP()
-    if myHRP then
-        _posAntes = myHRP.CFrame
-    end
-
     Estado.prenderAuto = true
     if _prenderThread then task.cancel(_prenderThread); _prenderThread = nil end
     _prenderThread = task.spawn(LoopPrender)
@@ -708,13 +739,6 @@ end
 local function PararPrenderAuto()
     Estado.prenderAuto = false
     if _prenderThread then task.cancel(_prenderThread); _prenderThread = nil end
-
-    -- volta para onde estava antes
-    if _posAntes then
-        task.wait(0.05) -- espera um frame pra garantir que o thread parou
-        TeleportarPara(_posAntes)
-        _posAntes = nil
-    end
 end
 
 -- ╔══════════════════════════════════════════╗
@@ -760,16 +784,26 @@ abaESP:CriarSlider("Transparencia (0=solido)", 0, 90, math.floor(Estado.espTrace
     end
 end)
 
-abaESP:CriarSecao("Cor")
+abaESP:CriarSecao("Cores por Time")
 
-abaESP:CriarColorPicker("Cor do ESP", Estado.corESP, function(cor)
-    Estado.corESP = cor
-    for _, d in pairs(_espDados) do
-        if d.hl     and d.hl.Parent      then d.hl.FillColor            = cor end
-        if d.stroke and d.stroke.Parent  then d.stroke.Color            = cor end
-        if d.line                         then d.line.Color              = cor end
-        if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3     = cor end
-    end
+abaESP:CriarColorPicker("Inmates (laranja)", Estado.corInmate, function(cor)
+    Estado.corInmate = cor
+    AtualizarCoresTime("Inmates")
+end)
+
+abaESP:CriarColorPicker("Guards (azul)", Estado.corGuard, function(cor)
+    Estado.corGuard = cor
+    AtualizarCoresTime("Guards")
+end)
+
+abaESP:CriarColorPicker("Criminals (vermelho)", Estado.corCriminal, function(cor)
+    Estado.corCriminal = cor
+    AtualizarCoresTime("Criminals")
+end)
+
+abaESP:CriarColorPicker("Outros (branco)", Estado.corOutro, function(cor)
+    Estado.corOutro = cor
+    AtualizarCoresOutros()
 end)
 
 -- ╔══════════════════════════════════════════╗
@@ -796,9 +830,61 @@ abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function
     if hum then hum.WalkSpeed = v end
 end)
 
+abaJogador:CriarSecao("Teleporte")
+
+local function ListarJogadores()
+    local lista = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local entrada = plr.DisplayName ~= plr.Name
+                and plr.DisplayName .. " (" .. plr.Name .. ")"
+                or  plr.Name
+            table.insert(lista, entrada)
+        end
+    end
+    if #lista == 0 then lista = {"(nenhum jogador)"} end
+    return lista
+end
+
+-- extrai o username da string do dropdown (ex: "Apelido (username)" → "username")
+local function ExtrairUsername(entrada)
+    local username = entrada:match("%((.-)%)$")
+    return username or entrada
+end
+
+local dropTeleporte = abaJogador:CriarDropdown("Teleportar para", ListarJogadores(), function(entrada)
+    local nome = ExtrairUsername(entrada)
+    local alvo = Players:FindFirstChild(nome)
+    if not alvo then
+        hub:Notificar("Teleporte", "Jogador nao encontrado.", "erro", 2)
+        return
+    end
+    local myHRP  = GetHRP()
+    local alvHRP = GetHRP(alvo)
+    if myHRP and alvHRP then
+        myHRP.CFrame = alvHRP.CFrame * CFrame.new(0, 0, -2)
+        hub:Notificar("Teleporte", "Teleportado para " .. nome, "sucesso", 2)
+    else
+        hub:Notificar("Teleporte", "Personagem nao disponivel.", "erro", 2)
+    end
+end)
+
+-- atualiza o dropdown quando jogadores entram ou saem
+Players.PlayerAdded:Connect(function(plr)
+    if Estado.hubFechado then return end
+    task.wait(0.5)
+    dropTeleporte:AtualizarOpcoes(ListarJogadores())
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if Estado.hubFechado then return end
+    task.wait(0.1)
+    dropTeleporte:AtualizarOpcoes(ListarJogadores())
+end)
+
 abaJogador:CriarSecao("Prender")
 
-abaJogador:CriarTexto("Detecta Criminals, teleporta e prende automaticamente.\nTimeout de 5s por alvo. Fica esperando se nao houver alvos.")
+abaJogador:CriarTexto("Detecta Criminals, teleporta e prende automaticamente.\nApos prender: respawna rapido e vai pro proximo alvo.")
 
 abaJogador:CriarToggle("Prender Automatico", Estado.prenderAuto, function(v)
     if v then
