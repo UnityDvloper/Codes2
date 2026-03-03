@@ -23,7 +23,6 @@ local Estado = {
     walkspeed   = 16,
     fly         = false,
     voarVel     = 50,
-    noclip      = false,
 
     prenderAuto = false,
 }
@@ -464,30 +463,6 @@ local function PararESP()
 end
 
 -- ══════════════════════════════════════════════
---  NOCLIP
--- ══════════════════════════════════════════════
-local _noclipConn
-
-local function IniciarNoclip()
-    _noclipConn = RunService.Stepped:Connect(function()
-        local char = GetChar()
-        if not char then return end
-        for _, p in ipairs(char:GetDescendants()) do
-            if p:IsA("BasePart") then p.CanCollide = false end
-        end
-    end)
-end
-
-local function PararNoclip()
-    if _noclipConn then _noclipConn:Disconnect(); _noclipConn = nil end
-    local char = GetChar()
-    if not char then return end
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then p.CanCollide = true end
-    end
-end
-
--- ══════════════════════════════════════════════
 --  FLY
 -- ══════════════════════════════════════════════
 local _flyHB
@@ -560,7 +535,6 @@ end
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
     if Estado.fly    then IniciarFly()   end
-    if Estado.noclip then PararNoclip(); IniciarNoclip() end
     local hum = GetHum()
     if hum then hum.WalkSpeed = Estado.walkspeed end
 end)
@@ -793,16 +767,6 @@ local abaJogador = hub:CriarAba("Jogador", "🧍")
 
 abaJogador:CriarSecao("Movimento")
 
-abaJogador:CriarToggle("Noclip (atravessar paredes)", Estado.noclip, function(v)
-    Estado.noclip = v
-    if v then
-        IniciarNoclip()
-        hub:Notificar("Noclip", "Ativado!", "sucesso", 2)
-    else
-        PararNoclip()
-        hub:Notificar("Noclip", "Desativado", "info", 2)
-    end
-end)
 
 abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function(v)
     Estado.walkspeed = v
@@ -912,6 +876,5 @@ hub:AoFechar(function()
     Estado.hubFechado = true
     PararESP()
     PararFly()
-    PararNoclip()
     PararPrenderAuto()
 end)
