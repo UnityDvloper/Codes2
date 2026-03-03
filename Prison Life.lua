@@ -15,11 +15,10 @@ local Estado = {
     espTracerTransp = 0.1,
     hubFechado      = false,
 
-    -- cores por time (padrões)
-    corInmate   = Color3.fromRGB(255, 140,   0),  -- laranja
-    corGuard    = Color3.fromRGB( 50, 130, 255),  -- azul
-    corCriminal = Color3.fromRGB(255,  50,  50),  -- vermelho
-    corOutro    = Color3.fromRGB(255, 255, 255),  -- branco
+    corInmate   = Color3.fromRGB(255, 140,   0),
+    corGuard    = Color3.fromRGB( 50, 130, 255),
+    corCriminal = Color3.fromRGB(255,  50,  50),
+    corOutro    = Color3.fromRGB(255, 255, 255),
 
     walkspeed   = 16,
     fly         = false,
@@ -58,7 +57,6 @@ local function WorldToViewport(pos)
     return Vector2.new(vp.X, vp.Y), onScreen, vp.Z
 end
 
--- retorna a cor ESP de acordo com o time do jogador
 local function CorDoTime(plr)
     if not plr or not plr.Team then return Estado.corOutro end
     local nome = plr.Team.Name
@@ -221,10 +219,8 @@ local function CriarEntradaESP(plr)
     stroke.Transparency = 0.25
     stroke.Parent       = bg
 
-    -- nome do jogador + apelido (DisplayName)
     local apelido   = plr.DisplayName
     local nomeTexto = plr.Name
-    -- mostra "Apelido (username)" se o apelido for diferente do username
     if apelido ~= nomeTexto then
         nomeTexto = apelido .. " (" .. plr.Name .. ")"
     end
@@ -242,7 +238,6 @@ local function CriarEntradaESP(plr)
     lblNome.TextWrapped            = true
     lblNome.Parent                 = bg
 
-    -- nome do time
     local teamName = (plr.Team and plr.Team.Name) or "Sem Time"
     local lblTime = Instance.new("TextLabel")
     lblTime.Size                   = UDim2.new(1,-8,0,10)
@@ -255,7 +250,6 @@ local function CriarEntradaESP(plr)
     lblTime.TextXAlignment         = Enum.TextXAlignment.Center
     lblTime.Parent                 = bg
 
-    -- barra de HP
     local baraBg = Instance.new("Frame")
     baraBg.Size             = UDim2.new(1,-8,0,4)
     baraBg.Position         = UDim2.new(0,4,0,29)
@@ -275,7 +269,6 @@ local function CriarEntradaESP(plr)
     c2.CornerRadius = UDim.new(1,0)
     c2.Parent       = baraFill
 
-    -- info HP / distância
     local lblInfo = Instance.new("TextLabel")
     lblInfo.Size                   = UDim2.new(1,-8,0,11)
     lblInfo.Position               = UDim2.new(0,4,0,36)
@@ -312,7 +305,6 @@ local function LimparTodoESP()
     end
 end
 
--- atualiza as cores de todas as entradas de um time específico
 local function AtualizarCoresTime(nomeTime)
     for _, d in pairs(_espDados) do
         if not d.plr then continue end
@@ -327,7 +319,6 @@ local function AtualizarCoresTime(nomeTime)
     end
 end
 
--- atualiza entradas de jogadores sem time ou de times desconhecidos
 local function AtualizarCoresOutros()
     for _, d in pairs(_espDados) do
         if not d.plr then continue end
@@ -386,7 +377,6 @@ local function IniciarESP()
     table.insert(_consESP, RunService.RenderStepped:Connect(function()
         if Estado.hubFechado then return end
 
-        -- cria ESP pra quem não tem ainda
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr == LocalPlayer then continue end
             if plr.Character and not _espDados[plr.Name] then
@@ -414,7 +404,6 @@ local function IniciarESP()
             local hum  = char:FindFirstChildOfClass("Humanoid")
             if not hrp or not hum then continue end
 
-            -- cor dinâmica por time (atualiza se o jogador mudou de time)
             local cor = CorDoTime(plr)
 
             if d.hl and d.hl.Parent then
@@ -568,7 +557,6 @@ local function IniciarFly()
     end)
 end
 
--- reaplica ao respawn
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
     if Estado.fly    then IniciarFly()   end
@@ -581,7 +569,7 @@ end)
 --  MONTA O HUB
 -- ══════════════════════════════════════════════
 local site = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/UnityDvloper/Codes/refs/heads/main/Hub",
+    "https://raw.githubusercontent.com/UnityDvloper/Codes/refs/heads/main/Hub.lua",
     true
 ))()
 
@@ -591,8 +579,8 @@ local hub = site.novo("Reboco", "Escuro", "Lento")
 --  PRENDER AUTOMÁTICO
 -- ══════════════════════════════════════════════
 local _prenderThread = nil
+local _arrestRemote  = nil
 
-local _arrestRemote = nil
 local function GetRemote()
     if _arrestRemote and _arrestRemote.Parent then return _arrestRemote end
     local r = ReplicatedStorage:FindFirstChild("Remotes")
@@ -611,7 +599,9 @@ local function GetCriminosos()
     return lista
 end
 
-local function EhCriminal(plr) return plr and plr.Team and plr.Team.Name == "Criminals" end
+local function EhCriminal(plr)
+    return plr and plr.Team and plr.Team.Name == "Criminals"
+end
 
 -- ══════════════════════════════════════════════
 --  RESPAWN RÁPIDO
@@ -634,17 +624,12 @@ local function RespawnarPersonagem()
     task.wait(0.5)
 end
 
--- ══════════════════════════════════════════════
---  TENTAR PRENDER
---  2s teleportando colado + spammando remote todo frame
--- ══════════════════════════════════════════════
 local function TentarPrender(alvo)
     if not alvo or not alvo.Parent then return false end
     if not EhCriminal(alvo) then return false end
     local remote = GetRemote()
     if not remote then return false end
 
-    -- espera o alvo renascer se estiver morto
     while Estado.prenderAuto and not Estado.hubFechado do
         if not alvo or not alvo.Parent then return false end
         if not EhCriminal(alvo) then return false end
@@ -676,9 +661,6 @@ local function TentarPrender(alvo)
     return true
 end
 
--- ══════════════════════════════════════════════
---  COOLDOWN — respawna e vai pro próximo
--- ══════════════════════════════════════════════
 local function ExecutarCooldown()
     if not Estado.prenderAuto or Estado.hubFechado then return end
     hub:Notificar("Auto Prender", "Renascendo...", "sucesso", 2)
@@ -686,9 +668,6 @@ local function ExecutarCooldown()
     task.wait(0.2)
 end
 
--- ══════════════════════════════════════════════
---  LOOP PRINCIPAL
--- ══════════════════════════════════════════════
 local function LoopPrender()
     local semCrimNotificado = false
 
@@ -770,19 +749,20 @@ abaESP:CriarToggle("Mostrar Tracers", Estado.espTracers, function(v)
     end
 end)
 
+-- ✦ sliders agora com unidade e sem precisar de config table
 abaESP:CriarSlider("Grossura", 1, 20, Estado.espTracerGross, function(v)
     Estado.espTracerGross = v
     for _, d in pairs(_espDados) do
         if d.line then d.line.Thickness = v end
     end
-end)
+end, { unidade = "px" })
 
-abaESP:CriarSlider("Transparencia (0=solido)", 0, 90, math.floor(Estado.espTracerTransp * 100), function(v)
+abaESP:CriarSlider("Transparencia", 0, 90, math.floor(Estado.espTracerTransp * 100), function(v)
     Estado.espTracerTransp = v / 100
     for _, d in pairs(_espDados) do
         if d.line then d.line.Transparency = Estado.espTracerTransp end
     end
-end)
+end, { unidade = "%" })
 
 abaESP:CriarSecao("Cores por Time")
 
@@ -828,7 +808,7 @@ abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function
     Estado.walkspeed = v
     local hum = GetHum()
     if hum then hum.WalkSpeed = v end
-end)
+end, { unidade = " ws" })
 
 abaJogador:CriarSecao("Teleporte")
 
@@ -846,37 +826,44 @@ local function ListarJogadores()
     return lista
 end
 
--- extrai o username da string do dropdown (ex: "Apelido (username)" → "username")
 local function ExtrairUsername(entrada)
     local username = entrada:match("%((.-)%)$")
     return username or entrada
 end
 
-local dropTeleporte = abaJogador:CriarDropdown("Teleportar para", ListarJogadores(), function(entrada)
-    local nome = ExtrairUsername(entrada)
-    local alvo = Players:FindFirstChild(nome)
-    if not alvo then
-        hub:Notificar("Teleporte", "Jogador nao encontrado.", "erro", 2)
-        return
-    end
-    local myHRP  = GetHRP()
-    local alvHRP = GetHRP(alvo)
-    if myHRP and alvHRP then
-        myHRP.CFrame = alvHRP.CFrame * CFrame.new(0, 0, -2)
-        hub:Notificar("Teleporte", "Teleportado para " .. nome, "sucesso", 2)
-    else
-        hub:Notificar("Teleporte", "Personagem nao disponivel.", "erro", 2)
-    end
-end)
+-- ✦ dropdown agora com parâmetros diretos (sem {})
+local dropTeleporte = abaJogador:CriarDropdown(
+    "Teleportar para",
+    ListarJogadores(),
+    function(entrada)
+        local nome = ExtrairUsername(entrada)
+        local alvo = Players:FindFirstChild(nome)
+        if not alvo then
+            hub:Notificar("Teleporte", "Jogador nao encontrado.", "erro", 2)
+            return
+        end
+        local myHRP  = GetHRP()
+        local alvHRP = GetHRP(alvo)
+        if myHRP and alvHRP then
+            myHRP.CFrame = alvHRP.CFrame * CFrame.new(0, 0, -2)
+            hub:Notificar("Teleporte", "Teleportado para " .. nome, "sucesso", 2)
+        else
+            hub:Notificar("Teleporte", "Personagem nao disponivel.", "erro", 2)
+        end
+    end,
+    false,       -- multi
+    true,        -- search
+    6,           -- maxVisible
+    "Escolher jogador..."
+)
 
--- atualiza o dropdown quando jogadores entram ou saem
-Players.PlayerAdded:Connect(function(plr)
+Players.PlayerAdded:Connect(function()
     if Estado.hubFechado then return end
     task.wait(0.5)
     dropTeleporte:AtualizarOpcoes(ListarJogadores())
 end)
 
-Players.PlayerRemoving:Connect(function(plr)
+Players.PlayerRemoving:Connect(function()
     if Estado.hubFechado then return end
     task.wait(0.1)
     dropTeleporte:AtualizarOpcoes(ListarJogadores())
@@ -912,7 +899,7 @@ end)
 
 abaJogador:CriarSlider("Velocidade de Voo", 10, 350, Estado.voarVel, function(v)
     Estado.voarVel = v
-end)
+end, { unidade = " ws" })
 
 -- ╔══════════════════════════════════════════╗
 -- ║  ABA: CONFIG                             ║
