@@ -1,5 +1,3 @@
--- Prison Life.lua
-
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local UserInputService  = game:GetService("UserInputService")
@@ -7,9 +5,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer       = Players.LocalPlayer
 local Camera            = workspace.CurrentCamera
 
--- ══════════════════════════════════════════════
---  ESTADO
--- ══════════════════════════════════════════════
 local Estado = {
     esp             = false,
     espTracers      = true,
@@ -17,17 +12,21 @@ local Estado = {
     espTracerTransp = 0.1,
     hubFechado      = false,
 
+    espFiltroAtivo  = false,
+    espJogadoresSel = {},
+
     corInmate   = Color3.fromRGB(255, 140,   0),
     corGuard    = Color3.fromRGB( 50, 130, 255),
     corCriminal = Color3.fromRGB(255,  50,  50),
     corOutro    = Color3.fromRGB(255, 255, 255),
 
-    walkspeed        = 16,   -- padrão 16
-    walkspeedAtivo   = false, -- toggle do walkspeed (desativado por padrão)
+    walkspeed        = 16,
+    walkspeedAtivo   = false,
     fly              = false,
     voarVel          = 50,
 
-    prenderAuto = false,
+    prenderAuto      = false,
+    prenderExcluidos = {},
 }
 
 local _consESP  = {}
@@ -40,9 +39,6 @@ local function LimparConexoes(lista)
     table.clear(lista)
 end
 
--- ══════════════════════════════════════════════
---  HELPERS
--- ══════════════════════════════════════════════
 local function GetChar()
     return LocalPlayer.Character
 end
@@ -68,9 +64,6 @@ local function CorDoTime(plr)
     return Estado.corOutro
 end
 
--- ══════════════════════════════════════════════
---  WALKSPEED — aplicar / resetar
--- ══════════════════════════════════════════════
 local function AplicarWalkSpeed()
     local hum = GetHum()
     if hum then
@@ -78,9 +71,11 @@ local function AplicarWalkSpeed()
     end
 end
 
--- ══════════════════════════════════════════════
---  CONTROLES MOBILE PARA O FLY
--- ══════════════════════════════════════════════
+local function DeveMostrarESP(plr)
+    if not Estado.espFiltroAtivo then return true end
+    return Estado.espJogadoresSel[plr.Name] == true
+end
+
 local virtualKeys = {
     W = false, A = false, S = false, D = false,
     Space = false, Shift = false,
@@ -164,9 +159,8 @@ local function CriarBotoesMobile()
 
     local pad   = 12
     local bS    = BTN_SIZE
-    -- Linhas dos botões direcionais (WASD) — esquerda da tela
-    local row1Y = -(bS + pad + bS + pad + 8)  -- linha de cima (W)
-    local row2Y = -(bS + pad + 8)              -- linha de baixo (A/S/D)
+    local row1Y = -(bS + pad + bS + pad + 8)
+    local row2Y = -(bS + pad + 8)
     local leftX = pad
 
     criarBotao(gui, "^",  leftX + bS + pad,         row1Y, "W")
@@ -174,17 +168,12 @@ local function CriarBotoesMobile()
     criarBotao(gui, "v",  leftX + bS + pad,         row2Y, "S")
     criarBotao(gui, ">",  leftX + (bS + pad) * 2,  row2Y, "D")
 
-    -- Botões de subir/descer — lado direito, deslocados um pouco mais à esquerda
     local vp     = Camera.ViewportSize
-    -- Antes ficava em vp.X - bS - pad; agora recuamos mais 70px para a esquerda
     local rightX = vp.X - bS - pad - 70
     criarBotao(gui, "+", rightX, row1Y, "Space")
     criarBotao(gui, "-", rightX, row2Y, "Shift")
 end
 
--- ══════════════════════════════════════════════
---  ESP — CRIAR / REMOVER
--- ══════════════════════════════════════════════
 local function RemoverEntradaESP(nome)
     local d = _espDados[nome]
     if not d then return end
@@ -349,9 +338,6 @@ local function AtualizarCoresOutros()
     end
 end
 
--- ══════════════════════════════════════════════
---  ESP — MOTOR
--- ══════════════════════════════════════════════
 local function IniciarESP()
     LimparConexoes(_consESP)
     LimparTodoESP()
@@ -420,13 +406,14 @@ local function IniciarESP()
             local hum  = char:FindFirstChildOfClass("Humanoid")
             if not hrp or not hum then continue end
 
+            local deveVerESP = Estado.esp and DeveMostrarESP(plr)
             local cor = CorDoTime(plr)
 
             if d.hl and d.hl.Parent then
-                d.hl.Enabled   = Estado.esp
+                d.hl.Enabled   = deveVerESP
                 d.hl.FillColor = cor
             end
-            if d.gui    and d.gui.Parent    then d.gui.Enabled       = Estado.esp end
+            if d.gui    and d.gui.Parent    then d.gui.Enabled       = deveVerESP end
             if d.stroke and d.stroke.Parent then d.stroke.Color      = cor        end
             if d.line                        then d.line.Color        = cor        end
             if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor     end
@@ -436,7 +423,7 @@ local function IniciarESP()
                 d.lblTime.Text = "[" .. tn .. "]"
             end
 
-            if not Estado.esp then
+            if not deveVerESP then
                 if d.line then d.line.Visible = false end
                 continue
             end
@@ -479,9 +466,6 @@ local function PararESP()
     LimparTodoESP()
 end
 
--- ══════════════════════════════════════════════
---  FLY
--- ══════════════════════════════════════════════
 local _flyHB
 
 local function PararFly()
@@ -555,9 +539,6 @@ LocalPlayer.CharacterAdded:Connect(function()
     AplicarWalkSpeed()
 end)
 
--- ══════════════════════════════════════════════
---  MONTA O HUB
--- ══════════════════════════════════════════════
 local site = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/UnityDvloper/Codes/refs/heads/main/Hub.lua",
     true
@@ -565,9 +546,6 @@ local site = loadstring(game:HttpGet(
 
 local hub = site.novo("Reboco", "Escuro")
 
--- ══════════════════════════════════════════════
---  PRENDER AUTOMÁTICO
--- ══════════════════════════════════════════════
 local _prenderThread = nil
 local _arrestRemote  = nil
 
@@ -583,7 +561,9 @@ local function GetCriminosos()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr == LocalPlayer then continue end
         if plr.Team and plr.Team.Name == "Criminals" then
-            table.insert(lista, plr)
+            if not Estado.prenderExcluidos[plr.Name] then
+                table.insert(lista, plr)
+            end
         end
     end
     return lista
@@ -593,9 +573,6 @@ local function EhCriminal(plr)
     return plr and plr.Team and plr.Team.Name == "Criminals"
 end
 
--- ══════════════════════════════════════════════
---  RESPAWN RÁPIDO
--- ══════════════════════════════════════════════
 local function RespawnarPersonagem()
     local hum = GetHum()
     if hum then hum.Health = 0 end
@@ -617,12 +594,14 @@ end
 local function TentarPrender(alvo)
     if not alvo or not alvo.Parent then return false end
     if not EhCriminal(alvo) then return false end
+    if Estado.prenderExcluidos[alvo.Name] then return false end
     local remote = GetRemote()
     if not remote then return false end
 
     while Estado.prenderAuto and not Estado.hubFechado do
         if not alvo or not alvo.Parent then return false end
         if not EhCriminal(alvo) then return false end
+        if Estado.prenderExcluidos[alvo.Name] then return false end
         local hum = GetHum(alvo)
         local hrp = GetHRP(alvo)
         if hrp and hum and hum.Health > 0 then break end
@@ -634,6 +613,7 @@ local function TentarPrender(alvo)
     while (tick() - inicio) < 2 do
         if not Estado.prenderAuto or Estado.hubFechado then break end
         if not alvo or not alvo.Parent then break end
+        if Estado.prenderExcluidos[alvo.Name] then break end
 
         local myHRP2  = GetHRP()
         local alvHRP2 = GetHRP(alvo)
@@ -667,7 +647,7 @@ local function LoopPrender()
         if #criminosos == 0 then
             if not semCrimNotificado then
                 semCrimNotificado = true
-                hub:Notificar("Auto Prender", "Nenhum Criminal no server!", "info", 4)
+                hub:Notificar("Auto Prender", "Nenhum Criminal disponivel!", "info", 4)
             end
             task.wait(0.5)
             continue
@@ -679,6 +659,7 @@ local function LoopPrender()
             if not Estado.prenderAuto or Estado.hubFechado then break end
             if not alvo or not alvo.Parent then continue end
             if not EhCriminal(alvo) then continue end
+            if Estado.prenderExcluidos[alvo.Name] then continue end
 
             hub:Notificar("Auto Prender", "Indo ate: " .. alvo.Name, "aviso", 2)
 
@@ -689,7 +670,7 @@ local function LoopPrender()
             elseif not alvo or not alvo.Parent then
                 hub:Notificar("Auto Prender", "Jogador saiu do jogo.", "info", 2)
             else
-                hub:Notificar("Auto Prender", alvo.Name .. " nao e Criminal.", "info", 2)
+                hub:Notificar("Auto Prender", alvo.Name .. " nao disponivel.", "info", 2)
             end
 
             task.wait(0)
@@ -710,9 +691,36 @@ local function PararPrenderAuto()
     if _prenderThread then task.cancel(_prenderThread); _prenderThread = nil end
 end
 
--- ╔══════════════════════════════════════════╗
--- ║  ABA: ESP                                ║
--- ╚══════════════════════════════════════════╝
+local function ListarJogadoresTodos()
+    local lista = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            table.insert(lista, plr.Name)
+        end
+    end
+    if #lista == 0 then lista = {"(nenhum)"} end
+    return lista
+end
+
+local function ListarJogadoresTeleporte()
+    local lista = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local entrada = plr.DisplayName ~= plr.Name
+                and plr.DisplayName .. " (" .. plr.Name .. ")"
+                or  plr.Name
+            table.insert(lista, entrada)
+        end
+    end
+    if #lista == 0 then lista = {"(nenhum jogador)"} end
+    return lista
+end
+
+local function ExtrairUsername(entrada)
+    local username = entrada:match("%((.-)%)$")
+    return username or entrada
+end
+
 local abaESP = hub:CriarAba("ESP", "👁️")
 
 abaESP:CriarSecao("Visibilidade")
@@ -727,6 +735,39 @@ abaESP:CriarToggle("ESP Players", Estado.esp, function(v)
         hub:Notificar("ESP", "Desativado", "info", 2)
     end
 end)
+
+abaESP:CriarSecao("Filtro de Jogadores")
+
+abaESP:CriarTexto("Selecione jogadores especificos para o ESP. Deixe vazio para mostrar todos.")
+
+local dropESPJogadores = abaESP:CriarDropdown(
+    "ESP Especifico",
+    ListarJogadoresTodos(),
+    function(label, selMap)
+        Estado.espJogadoresSel = {}
+        if selMap then
+            for nome, ativo in pairs(selMap) do
+                if ativo then
+                    Estado.espJogadoresSel[nome] = true
+                end
+            end
+        end
+        local temSel = false
+        for _ in pairs(Estado.espJogadoresSel) do temSel = true; break end
+        Estado.espFiltroAtivo = temSel
+    end,
+    {
+        multi       = true,
+        search      = true,
+        maxVisible  = 6,
+        placeholder = "Todos os jogadores",
+    }
+)
+
+abaESP:CriarBotao("Atualizar Lista", function()
+    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
+    hub:Notificar("ESP", "Lista de jogadores atualizada!", "info", 2)
+end, { icone = "🔄" })
 
 abaESP:CriarSecao("Tracers")
 
@@ -775,18 +816,10 @@ abaESP:CriarColorPicker("Outros (branco)", Estado.corOutro, function(cor)
     AtualizarCoresOutros()
 end)
 
--- ╔══════════════════════════════════════════╗
--- ║  ABA: JOGADOR                            ║
--- ╚══════════════════════════════════════════╝
 local abaJogador = hub:CriarAba("Jogador", "🧍")
 
 abaJogador:CriarSecao("Movimento")
 
--- Referência ao slider de velocidade para poder ativar/desativar
-local sliderVelocidade = nil
-
--- Toggle que ativa/desativa a velocidade customizada
--- Quando OFF → WalkSpeed volta a 16; quando ON → aplica o valor do slider
 abaJogador:CriarToggle("Velocidade Customizada", Estado.walkspeedAtivo, function(v)
     Estado.walkspeedAtivo = v
     AplicarWalkSpeed()
@@ -797,10 +830,8 @@ abaJogador:CriarToggle("Velocidade Customizada", Estado.walkspeedAtivo, function
     end
 end)
 
--- Slider de velocidade — só tem efeito quando o toggle acima estiver ON
-sliderVelocidade = abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function(v)
+abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function(v)
     Estado.walkspeed = v
-    -- Só aplica se o toggle estiver ativado
     if Estado.walkspeedAtivo then
         AplicarWalkSpeed()
     end
@@ -808,28 +839,9 @@ end, { unidade = " ws" })
 
 abaJogador:CriarSecao("Teleporte")
 
-local function ListarJogadores()
-    local lista = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
-            local entrada = plr.DisplayName ~= plr.Name
-                and plr.DisplayName .. " (" .. plr.Name .. ")"
-                or  plr.Name
-            table.insert(lista, entrada)
-        end
-    end
-    if #lista == 0 then lista = {"(nenhum jogador)"} end
-    return lista
-end
-
-local function ExtrairUsername(entrada)
-    local username = entrada:match("%((.-)%)$")
-    return username or entrada
-end
-
 local dropTeleporte = abaJogador:CriarDropdown(
     "Teleportar para",
-    ListarJogadores(),
+    ListarJogadoresTeleporte(),
     function(entrada)
         local nome = ExtrairUsername(entrada)
         local alvo = Players:FindFirstChild(nome)
@@ -855,18 +867,25 @@ local dropTeleporte = abaJogador:CriarDropdown(
 Players.PlayerAdded:Connect(function()
     if Estado.hubFechado then return end
     task.wait(0.5)
-    dropTeleporte:AtualizarOpcoes(ListarJogadores())
+    dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
+    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
 end)
 
-Players.PlayerRemoving:Connect(function()
+Players.PlayerRemoving:Connect(function(plr)
     if Estado.hubFechado then return end
     task.wait(0.1)
-    dropTeleporte:AtualizarOpcoes(ListarJogadores())
+    dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
+    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
+    Estado.espJogadoresSel[plr.Name] = nil
+    Estado.prenderExcluidos[plr.Name] = nil
+    local temSel = false
+    for _ in pairs(Estado.espJogadoresSel) do temSel = true; break end
+    Estado.espFiltroAtivo = temSel
 end)
 
 abaJogador:CriarSecao("Prender")
 
-abaJogador:CriarTexto("Detecta Criminals, teleporta e prende automaticamente.\nApos prender: respawna rapido e vai pro proximo alvo.")
+abaJogador:CriarTexto("Detecta Criminals, teleporta e prende automaticamente.\nApós prender: respawna rapido e vai pro proximo alvo.")
 
 abaJogador:CriarToggle("Prender Automatico", Estado.prenderAuto, function(v)
     if v then
@@ -877,6 +896,42 @@ abaJogador:CriarToggle("Prender Automatico", Estado.prenderAuto, function(v)
         hub:Notificar("Auto Prender", "Desativado", "info", 2)
     end
 end)
+
+abaJogador:CriarSecao("Excluir do Auto Prender")
+
+abaJogador:CriarTexto("Jogadores selecionados aqui NAO serao presos pelo Auto Prender.")
+
+local dropExcluidos = abaJogador:CriarDropdown(
+    "Excluir Jogadores",
+    ListarJogadoresTodos(),
+    function(label, selMap)
+        Estado.prenderExcluidos = {}
+        if selMap then
+            for nome, ativo in pairs(selMap) do
+                if ativo then
+                    Estado.prenderExcluidos[nome] = true
+                end
+            end
+        end
+        local cnt = 0
+        for _ in pairs(Estado.prenderExcluidos) do cnt = cnt + 1 end
+        if cnt > 0 then
+            hub:Notificar("Auto Prender", cnt .. " jogador(es) excluido(s)", "aviso", 2)
+        end
+    end,
+    {
+        multi       = true,
+        search      = true,
+        maxVisible  = 6,
+        placeholder = "Nenhum excluido",
+    }
+)
+
+abaJogador:CriarBotao("Atualizar Lista", function()
+    dropExcluidos:AtualizarOpcoes(ListarJogadoresTodos())
+    dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
+    hub:Notificar("Jogador", "Listas atualizadas!", "info", 2)
+end, { icone = "🔄" })
 
 abaJogador:CriarSecao("Voar")
 
@@ -896,9 +951,6 @@ abaJogador:CriarSlider("Velocidade de Voo", 10, 350, Estado.voarVel, function(v)
     Estado.voarVel = v
 end, { unidade = " ws" })
 
--- ╔══════════════════════════════════════════╗
--- ║  ABA: CONFIG                             ║
--- ╚══════════════════════════════════════════╝
 local abaConfig = hub:CriarAba("Config", "⚙️")
 abaConfig:CriarSecao("Aparencia")
 hub:CriarDropdownTemas(abaConfig)
