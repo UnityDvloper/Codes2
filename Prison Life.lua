@@ -6,31 +6,43 @@ local LocalPlayer       = Players.LocalPlayer
 local Camera            = workspace.CurrentCamera
 
 local Estado = {
-    esp             = false,
+    -- ESP
+    espTodos        = false,
+    espCustom       = false,
     espTracers      = true,
     espTracerGross  = 4,
     espTracerTransp = 0.1,
     hubFechado      = false,
-
-    espFiltroAtivo  = false,
     espJogadoresSel = {},
 
+    -- Cores
     corInmate   = Color3.fromRGB(255, 140,   0),
     corGuard    = Color3.fromRGB( 50, 130, 255),
     corCriminal = Color3.fromRGB(255,  50,  50),
     corOutro    = Color3.fromRGB(255, 255, 255),
 
+    -- Movimento
     walkspeed        = 16,
     walkspeedAtivo   = false,
     fly              = false,
     voarVel          = 50,
 
+    -- Auto Prender
     prenderAuto      = false,
     prenderExcluidos = {},
+
+    -- Aimbot
+    aimbotAtivo      = false,
+    aimbotFov        = 120,
+    aimbotSmooth     = 0.25,
+    aimbotExcluidos  = {},
+    aimbotParte      = "Head",
 }
 
 local _consESP  = {}
 local _espDados = {}
+
+-- ─── Utilitários ───────────────────────────────────────────────────────────────
 
 local function LimparConexoes(lista)
     for _, c in pairs(lista) do
@@ -64,6 +76,10 @@ local function CorDoTime(plr)
     return Estado.corOutro
 end
 
+local function MeuTime()
+    return LocalPlayer.Team and LocalPlayer.Team.Name or nil
+end
+
 local function AplicarWalkSpeed()
     local hum = GetHum()
     if hum then
@@ -71,10 +87,338 @@ local function AplicarWalkSpeed()
     end
 end
 
-local function DeveMostrarESP(plr)
-    if not Estado.espFiltroAtivo then return true end
-    return Estado.espJogadoresSel[plr.Name] == true
+-- ─── ESP ───────────────────────────────────────────────────────────────────────
+
+local function EspAtivo()
+    return Estado.espTodos or Estado.espCustom
 end
+
+local function DeveMostrarESP(plr)
+    if Estado.espTodos then return true end
+    if Estado.espCustom then
+        return Estado.espJogadoresSel[plr.Name] == true
+    end
+    return false
+end
+
+local function RemoverEntradaESP(nome)
+    local d = _espDados[nome]
+    if not d then return end
+    if d.hl  and d.hl.Parent  then d.hl:Destroy()  end
+    if d.gui and d.gui.Parent then d.gui:Destroy() end
+    if d.line then pcall(function() d.line:Remove() end) end
+    _espDados[nome] = nil
+end
+
+local function CriarEntradaESP(plr)
+    RemoverEntradaESP(plr.Name)
+    local char = plr.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local cor = CorDoTime(plr)
+
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = cor
+    hl.OutlineColor        = Color3.new(1,1,1)
+    hl.FillTransparency    = 0.45
+    hl.OutlineTransparency = 0
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Adornee             = char
+    hl.Parent              = char
+
+    local gui = Instance.new("BillboardGui")
+    gui.AlwaysOnTop = true
+    gui.Size        = UDim2.new(0, 140, 0, 68)
+    gui.StudsOffset = Vector3.new(0, 3.5, 0)
+    gui.Adornee     = hrp
+    gui.Parent      = hrp
+
+    local bg = Instance.new("Frame")
+    bg.Size                   = UDim2.new(1,0,1,0)
+    bg.BackgroundColor3       = Color3.fromRGB(8,8,12)
+    bg.BackgroundTransparency = 0.42
+    bg.BorderSizePixel        = 0
+    bg.Parent                 = gui
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0,6)
+    corner.Parent       = bg
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color        = cor
+    stroke.Thickness    = 1
+    stroke.Transparency = 0.25
+    stroke.Parent       = bg
+
+    local apelido   = plr.DisplayName
+    local nomeTexto = plr.Name
+    if apelido ~= nomeTexto then
+        nomeTexto = apelido .. " (" .. plr.Name .. ")"
+    end
+
+    local lblNome = Instance.new("TextLabel")
+    lblNome.Size                   = UDim2.new(1,-8,0,14)
+    lblNome.Position               = UDim2.new(0,4,0,2)
+    lblNome.BackgroundTransparency = 1
+    lblNome.Text                   = nomeTexto
+    lblNome.TextColor3             = cor
+    lblNome.Font                   = Enum.Font.GothamBold
+    lblNome.TextSize               = 10
+    lblNome.TextXAlignment         = Enum.TextXAlignment.Center
+    lblNome.TextScaled             = false
+    lblNome.TextWrapped            = true
+    lblNome.Parent                 = bg
+
+    local teamName = (plr.Team and plr.Team.Name) or "Sem Time"
+    local lblTime = Instance.new("TextLabel")
+    lblTime.Size                   = UDim2.new(1,-8,0,10)
+    lblTime.Position               = UDim2.new(0,4,0,17)
+    lblTime.BackgroundTransparency = 1
+    lblTime.Text                   = "[" .. teamName .. "]"
+    lblTime.TextColor3             = cor
+    lblTime.Font                   = Enum.Font.GothamBold
+    lblTime.TextSize               = 9
+    lblTime.TextXAlignment         = Enum.TextXAlignment.Center
+    lblTime.Parent                 = bg
+
+    local baraBg = Instance.new("Frame")
+    baraBg.Size             = UDim2.new(1,-8,0,4)
+    baraBg.Position         = UDim2.new(0,4,0,31)
+    baraBg.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    baraBg.BorderSizePixel  = 0
+    baraBg.Parent           = bg
+    local c1 = Instance.new("UICorner")
+    c1.CornerRadius = UDim.new(1,0)
+    c1.Parent       = baraBg
+
+    local baraFill = Instance.new("Frame")
+    baraFill.Size             = UDim2.new(1,0,1,0)
+    baraFill.BackgroundColor3 = Color3.fromRGB(60,220,100)
+    baraFill.BorderSizePixel  = 0
+    baraFill.Parent           = baraBg
+    local c2 = Instance.new("UICorner")
+    c2.CornerRadius = UDim.new(1,0)
+    c2.Parent       = baraFill
+
+    local lblInfo = Instance.new("TextLabel")
+    lblInfo.Size                   = UDim2.new(1,-8,0,11)
+    lblInfo.Position               = UDim2.new(0,4,0,38)
+    lblInfo.BackgroundTransparency = 1
+    lblInfo.Text                   = "HP: ? | Dist: ?"
+    lblInfo.TextColor3             = Color3.fromRGB(200,200,200)
+    lblInfo.Font                   = Enum.Font.Gotham
+    lblInfo.TextSize               = 9
+    lblInfo.TextXAlignment         = Enum.TextXAlignment.Center
+    lblInfo.Parent                 = bg
+
+    local lblDist = Instance.new("TextLabel")
+    lblDist.Size                   = UDim2.new(1,-8,0,10)
+    lblDist.Position               = UDim2.new(0,4,0,51)
+    lblDist.BackgroundTransparency = 1
+    lblDist.Text                   = ""
+    lblDist.TextColor3             = Color3.fromRGB(160,210,255)
+    lblDist.Font                   = Enum.Font.Gotham
+    lblDist.TextSize               = 8
+    lblDist.TextXAlignment         = Enum.TextXAlignment.Center
+    lblDist.Parent                 = bg
+
+    local line        = Drawing.new("Line")
+    line.Visible      = false
+    line.Thickness    = Estado.espTracerGross
+    line.Color        = cor
+    line.Transparency = Estado.espTracerTransp
+
+    _espDados[plr.Name] = {
+        plr      = plr,
+        hl       = hl,
+        gui      = gui,
+        line     = line,
+        stroke   = stroke,
+        baraFill = baraFill,
+        lblNome  = lblNome,
+        lblTime  = lblTime,
+        lblInfo  = lblInfo,
+        lblDist  = lblDist,
+    }
+end
+
+local function LimparTodoESP()
+    for nome in pairs(_espDados) do
+        RemoverEntradaESP(nome)
+    end
+end
+
+local function AtualizarCoresTime(nomeTime)
+    for _, d in pairs(_espDados) do
+        if not d.plr then continue end
+        local tn = d.plr.Team and d.plr.Team.Name
+        if tn ~= nomeTime then continue end
+        local cor = CorDoTime(d.plr)
+        if d.hl     and d.hl.Parent      then d.hl.FillColor        = cor end
+        if d.stroke and d.stroke.Parent  then d.stroke.Color        = cor end
+        if d.line                         then d.line.Color          = cor end
+        if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
+        if d.lblTime and d.lblTime.Parent then d.lblTime.TextColor3 = cor end
+    end
+end
+
+local function AtualizarCoresOutros()
+    for _, d in pairs(_espDados) do
+        if not d.plr then continue end
+        local tn = d.plr.Team and d.plr.Team.Name
+        if tn == "Inmates" or tn == "Guards" or tn == "Criminals" then continue end
+        local cor = Estado.corOutro
+        if d.hl     and d.hl.Parent      then d.hl.FillColor        = cor end
+        if d.stroke and d.stroke.Parent  then d.stroke.Color        = cor end
+        if d.line                         then d.line.Color          = cor end
+        if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
+        if d.lblTime and d.lblTime.Parent then d.lblTime.TextColor3 = cor end
+    end
+end
+
+local function IniciarESP()
+    LimparConexoes(_consESP)
+    LimparTodoESP()
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            CriarEntradaESP(plr)
+        end
+    end
+
+    table.insert(_consESP, Players.PlayerAdded:Connect(function(plr)
+        table.insert(_consESP, plr.CharacterAdded:Connect(function()
+            task.wait(0.6)
+            if Estado.hubFechado or not EspAtivo() then return end
+            CriarEntradaESP(plr)
+        end))
+        task.wait(0.6)
+        if Estado.hubFechado or not EspAtivo() then return end
+        if plr.Character then CriarEntradaESP(plr) end
+    end))
+
+    table.insert(_consESP, Players.PlayerRemoving:Connect(function(plr)
+        RemoverEntradaESP(plr.Name)
+    end))
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            table.insert(_consESP, plr.CharacterAdded:Connect(function()
+                task.wait(0.6)
+                if Estado.hubFechado or not EspAtivo() then return end
+                CriarEntradaESP(plr)
+            end))
+            table.insert(_consESP, plr.CharacterRemoving:Connect(function()
+                RemoverEntradaESP(plr.Name)
+            end))
+        end
+    end
+
+    table.insert(_consESP, RunService.RenderStepped:Connect(function()
+        if Estado.hubFechado then return end
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == LocalPlayer then continue end
+            if plr.Character and not _espDados[plr.Name] then
+                CriarEntradaESP(plr)
+            elseif not plr.Character and _espDados[plr.Name] then
+                RemoverEntradaESP(plr.Name)
+            end
+        end
+
+        local myHRP = GetHRP()
+        local tracerOrigem
+        if myHRP then
+            local sp, onSc, depth = WorldToViewport(myHRP.Position - Vector3.new(0,2,0))
+            tracerOrigem = (onSc and depth > 0) and sp or nil
+        end
+        if not tracerOrigem then
+            tracerOrigem = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+        end
+
+        for _, d in pairs(_espDados) do
+            local plr = d.plr
+            if not plr or not plr.Character then continue end
+            local char = plr.Character
+            local hrp  = char:FindFirstChild("HumanoidRootPart")
+            local hum  = char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then continue end
+
+            local deveVerESP = EspAtivo() and DeveMostrarESP(plr)
+            local cor = CorDoTime(plr)
+
+            if d.hl and d.hl.Parent then
+                d.hl.Enabled   = deveVerESP
+                d.hl.FillColor = cor
+            end
+            if d.gui    and d.gui.Parent    then d.gui.Enabled       = deveVerESP end
+            if d.stroke and d.stroke.Parent then d.stroke.Color      = cor        end
+            if d.line                        then d.line.Color        = cor        end
+            if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor     end
+            if d.lblTime and d.lblTime.Parent then
+                d.lblTime.TextColor3 = cor
+                local tn = (plr.Team and plr.Team.Name) or "Sem Time"
+                d.lblTime.Text = "[" .. tn .. "]"
+            end
+
+            if not deveVerESP then
+                if d.line then d.line.Visible = false end
+                continue
+            end
+
+            local dist  = myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0
+            local hp    = math.floor(hum.Health)
+            local maxHp = math.floor(hum.MaxHealth)
+            local pct   = maxHp > 0 and (hp / maxHp) or 0
+
+            local barCor = pct > 0.6 and Color3.fromRGB(60,220,100)
+                        or pct > 0.3 and Color3.fromRGB(255,190,40)
+                        or              Color3.fromRGB(220,55,55)
+
+            if d.baraFill and d.baraFill.Parent then
+                d.baraFill.Size             = UDim2.new(math.clamp(pct,0,1),0,1,0)
+                d.baraFill.BackgroundColor3 = barCor
+            end
+            if d.lblInfo and d.lblInfo.Parent then
+                d.lblInfo.Text = "HP "..hp.."/"..maxHp.."  |  "..dist.."m"
+            end
+            if d.lblDist and d.lblDist.Parent then
+                local spd = hum.MoveDirection.Magnitude > 0.1 and "correndo" or "parado"
+                d.lblDist.Text = spd
+            end
+
+            if d.line then
+                local sp, onScreen, depth = WorldToViewport(hrp.Position - Vector3.new(0,2.5,0))
+                if Estado.espTracers and onScreen and depth > 0 then
+                    d.line.From         = tracerOrigem
+                    d.line.To           = sp
+                    d.line.Thickness    = Estado.espTracerGross
+                    d.line.Transparency = Estado.espTracerTransp
+                    d.line.Visible      = true
+                else
+                    d.line.Visible = false
+                end
+            end
+        end
+    end))
+end
+
+local function PararESP()
+    LimparConexoes(_consESP)
+    LimparTodoESP()
+end
+
+local function RecarregarESP()
+    if EspAtivo() then
+        PararESP()
+        IniciarESP()
+    else
+        PararESP()
+    end
+end
+
+-- ─── Fly ───────────────────────────────────────────────────────────────────────
 
 local virtualKeys = {
     W = false, A = false, S = false, D = false,
@@ -174,298 +518,6 @@ local function CriarBotoesMobile()
     criarBotao(gui, "-", rightX, row2Y, "Shift")
 end
 
-local function RemoverEntradaESP(nome)
-    local d = _espDados[nome]
-    if not d then return end
-    if d.hl  and d.hl.Parent  then d.hl:Destroy()  end
-    if d.gui and d.gui.Parent then d.gui:Destroy() end
-    if d.line then pcall(function() d.line:Remove() end) end
-    _espDados[nome] = nil
-end
-
-local function CriarEntradaESP(plr)
-    RemoverEntradaESP(plr.Name)
-    local char = plr.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    local cor = CorDoTime(plr)
-
-    local hl = Instance.new("Highlight")
-    hl.FillColor           = cor
-    hl.OutlineColor        = Color3.new(1,1,1)
-    hl.FillTransparency    = 0.45
-    hl.OutlineTransparency = 0
-    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Adornee             = char
-    hl.Parent              = char
-
-    local gui = Instance.new("BillboardGui")
-    gui.AlwaysOnTop = true
-    gui.Size        = UDim2.new(0, 130, 0, 58)
-    gui.StudsOffset = Vector3.new(0, 3.2, 0)
-    gui.Adornee     = hrp
-    gui.Parent      = hrp
-
-    local bg = Instance.new("Frame")
-    bg.Size                   = UDim2.new(1,0,1,0)
-    bg.BackgroundColor3       = Color3.fromRGB(8,8,12)
-    bg.BackgroundTransparency = 0.42
-    bg.BorderSizePixel        = 0
-    bg.Parent                 = gui
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0,6)
-    corner.Parent       = bg
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color        = cor
-    stroke.Thickness    = 1
-    stroke.Transparency = 0.25
-    stroke.Parent       = bg
-
-    local apelido   = plr.DisplayName
-    local nomeTexto = plr.Name
-    if apelido ~= nomeTexto then
-        nomeTexto = apelido .. " (" .. plr.Name .. ")"
-    end
-
-    local lblNome = Instance.new("TextLabel")
-    lblNome.Size                   = UDim2.new(1,-8,0,14)
-    lblNome.Position               = UDim2.new(0,4,0,2)
-    lblNome.BackgroundTransparency = 1
-    lblNome.Text                   = nomeTexto
-    lblNome.TextColor3             = cor
-    lblNome.Font                   = Enum.Font.GothamBold
-    lblNome.TextSize               = 10
-    lblNome.TextXAlignment         = Enum.TextXAlignment.Center
-    lblNome.TextScaled             = false
-    lblNome.TextWrapped            = true
-    lblNome.Parent                 = bg
-
-    local teamName = (plr.Team and plr.Team.Name) or "Sem Time"
-    local lblTime = Instance.new("TextLabel")
-    lblTime.Size                   = UDim2.new(1,-8,0,10)
-    lblTime.Position               = UDim2.new(0,4,0,17)
-    lblTime.BackgroundTransparency = 1
-    lblTime.Text                   = "[" .. teamName .. "]"
-    lblTime.TextColor3             = cor
-    lblTime.Font                   = Enum.Font.GothamBold
-    lblTime.TextSize               = 9
-    lblTime.TextXAlignment         = Enum.TextXAlignment.Center
-    lblTime.Parent                 = bg
-
-    local baraBg = Instance.new("Frame")
-    baraBg.Size             = UDim2.new(1,-8,0,4)
-    baraBg.Position         = UDim2.new(0,4,0,29)
-    baraBg.BackgroundColor3 = Color3.fromRGB(30,30,30)
-    baraBg.BorderSizePixel  = 0
-    baraBg.Parent           = bg
-    local c1 = Instance.new("UICorner")
-    c1.CornerRadius = UDim.new(1,0)
-    c1.Parent       = baraBg
-
-    local baraFill = Instance.new("Frame")
-    baraFill.Size             = UDim2.new(1,0,1,0)
-    baraFill.BackgroundColor3 = Color3.fromRGB(60,220,100)
-    baraFill.BorderSizePixel  = 0
-    baraFill.Parent           = baraBg
-    local c2 = Instance.new("UICorner")
-    c2.CornerRadius = UDim.new(1,0)
-    c2.Parent       = baraFill
-
-    local lblInfo = Instance.new("TextLabel")
-    lblInfo.Size                   = UDim2.new(1,-8,0,11)
-    lblInfo.Position               = UDim2.new(0,4,0,36)
-    lblInfo.BackgroundTransparency = 1
-    lblInfo.Text                   = "HP: ? | Dist: ?"
-    lblInfo.TextColor3             = Color3.fromRGB(200,200,200)
-    lblInfo.Font                   = Enum.Font.Gotham
-    lblInfo.TextSize               = 9
-    lblInfo.TextXAlignment         = Enum.TextXAlignment.Center
-    lblInfo.Parent                 = bg
-
-    local line        = Drawing.new("Line")
-    line.Visible      = false
-    line.Thickness    = Estado.espTracerGross
-    line.Color        = cor
-    line.Transparency = Estado.espTracerTransp
-
-    _espDados[plr.Name] = {
-        plr      = plr,
-        hl       = hl,
-        gui      = gui,
-        line     = line,
-        stroke   = stroke,
-        baraFill = baraFill,
-        lblNome  = lblNome,
-        lblTime  = lblTime,
-        lblInfo  = lblInfo,
-    }
-end
-
-local function LimparTodoESP()
-    for nome in pairs(_espDados) do
-        RemoverEntradaESP(nome)
-    end
-end
-
-local function AtualizarCoresTime(nomeTime)
-    for _, d in pairs(_espDados) do
-        if not d.plr then continue end
-        local tn = d.plr.Team and d.plr.Team.Name
-        if tn ~= nomeTime then continue end
-        local cor = CorDoTime(d.plr)
-        if d.hl     and d.hl.Parent      then d.hl.FillColor        = cor end
-        if d.stroke and d.stroke.Parent  then d.stroke.Color        = cor end
-        if d.line                         then d.line.Color          = cor end
-        if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
-        if d.lblTime and d.lblTime.Parent then d.lblTime.TextColor3 = cor end
-    end
-end
-
-local function AtualizarCoresOutros()
-    for _, d in pairs(_espDados) do
-        if not d.plr then continue end
-        local tn = d.plr.Team and d.plr.Team.Name
-        if tn == "Inmates" or tn == "Guards" or tn == "Criminals" then continue end
-        local cor = Estado.corOutro
-        if d.hl     and d.hl.Parent      then d.hl.FillColor        = cor end
-        if d.stroke and d.stroke.Parent  then d.stroke.Color        = cor end
-        if d.line                         then d.line.Color          = cor end
-        if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor end
-        if d.lblTime and d.lblTime.Parent then d.lblTime.TextColor3 = cor end
-    end
-end
-
-local function IniciarESP()
-    LimparConexoes(_consESP)
-    LimparTodoESP()
-
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            CriarEntradaESP(plr)
-        end
-    end
-
-    table.insert(_consESP, Players.PlayerAdded:Connect(function(plr)
-        table.insert(_consESP, plr.CharacterAdded:Connect(function()
-            task.wait(0.6)
-            if Estado.hubFechado or not Estado.esp then return end
-            CriarEntradaESP(plr)
-        end))
-        task.wait(0.6)
-        if Estado.hubFechado or not Estado.esp then return end
-        if plr.Character then CriarEntradaESP(plr) end
-    end))
-
-    table.insert(_consESP, Players.PlayerRemoving:Connect(function(plr)
-        RemoverEntradaESP(plr.Name)
-    end))
-
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
-            table.insert(_consESP, plr.CharacterAdded:Connect(function()
-                task.wait(0.6)
-                if Estado.hubFechado or not Estado.esp then return end
-                CriarEntradaESP(plr)
-            end))
-            table.insert(_consESP, plr.CharacterRemoving:Connect(function()
-                RemoverEntradaESP(plr.Name)
-            end))
-        end
-    end
-
-    table.insert(_consESP, RunService.RenderStepped:Connect(function()
-        if Estado.hubFechado then return end
-
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr == LocalPlayer then continue end
-            if plr.Character and not _espDados[plr.Name] then
-                CriarEntradaESP(plr)
-            elseif not plr.Character and _espDados[plr.Name] then
-                RemoverEntradaESP(plr.Name)
-            end
-        end
-
-        local myHRP = GetHRP()
-        local tracerOrigem
-        if myHRP then
-            local sp, onSc, depth = WorldToViewport(myHRP.Position - Vector3.new(0,2,0))
-            tracerOrigem = (onSc and depth > 0) and sp or nil
-        end
-        if not tracerOrigem then
-            tracerOrigem = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-        end
-
-        for _, d in pairs(_espDados) do
-            local plr = d.plr
-            if not plr or not plr.Character then continue end
-            local char = plr.Character
-            local hrp  = char:FindFirstChild("HumanoidRootPart")
-            local hum  = char:FindFirstChildOfClass("Humanoid")
-            if not hrp or not hum then continue end
-
-            local deveVerESP = Estado.esp and DeveMostrarESP(plr)
-            local cor = CorDoTime(plr)
-
-            if d.hl and d.hl.Parent then
-                d.hl.Enabled   = deveVerESP
-                d.hl.FillColor = cor
-            end
-            if d.gui    and d.gui.Parent    then d.gui.Enabled       = deveVerESP end
-            if d.stroke and d.stroke.Parent then d.stroke.Color      = cor        end
-            if d.line                        then d.line.Color        = cor        end
-            if d.lblNome and d.lblNome.Parent then d.lblNome.TextColor3 = cor     end
-            if d.lblTime and d.lblTime.Parent then
-                d.lblTime.TextColor3 = cor
-                local tn = (plr.Team and plr.Team.Name) or "Sem Time"
-                d.lblTime.Text = "[" .. tn .. "]"
-            end
-
-            if not deveVerESP then
-                if d.line then d.line.Visible = false end
-                continue
-            end
-
-            local dist  = myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0
-            local hp    = math.floor(hum.Health)
-            local maxHp = math.floor(hum.MaxHealth)
-            local pct   = maxHp > 0 and (hp / maxHp) or 0
-
-            local barCor = pct > 0.6 and Color3.fromRGB(60,220,100)
-                        or pct > 0.3 and Color3.fromRGB(255,190,40)
-                        or              Color3.fromRGB(220,55,55)
-
-            if d.baraFill and d.baraFill.Parent then
-                d.baraFill.Size             = UDim2.new(math.clamp(pct,0,1),0,1,0)
-                d.baraFill.BackgroundColor3 = barCor
-            end
-            if d.lblInfo and d.lblInfo.Parent then
-                d.lblInfo.Text = "HP "..hp.."/"..maxHp.."  |  "..dist.."m"
-            end
-
-            if d.line then
-                local sp, onScreen, depth = WorldToViewport(hrp.Position - Vector3.new(0,2.5,0))
-                if Estado.espTracers and onScreen and depth > 0 then
-                    d.line.From         = tracerOrigem
-                    d.line.To           = sp
-                    d.line.Thickness    = Estado.espTracerGross
-                    d.line.Transparency = Estado.espTracerTransp
-                    d.line.Visible      = true
-                else
-                    d.line.Visible = false
-                end
-            end
-        end
-    end))
-end
-
-local function PararESP()
-    LimparConexoes(_consESP)
-    LimparTodoESP()
-end
-
 local _flyHB
 
 local function PararFly()
@@ -533,11 +585,122 @@ local function IniciarFly()
     end)
 end
 
+-- ─── Aimbot ────────────────────────────────────────────────────────────────────
+
+local _aimbotCirculo = Drawing.new("Circle")
+_aimbotCirculo.Visible      = false
+_aimbotCirculo.Filled       = false
+_aimbotCirculo.Color        = Color3.fromRGB(255, 255, 255)
+_aimbotCirculo.Thickness    = 1.5
+_aimbotCirculo.Transparency = 0.6
+_aimbotCirculo.NumSides     = 64
+
+local _aimbotHB = nil
+
+local function TemLinhaDaVisao(origem, destino)
+    local direcao = (destino - origem)
+    local dist    = direcao.Magnitude
+    if dist < 0.1 then return true end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local char = GetChar()
+    if char then
+        params.FilterDescendantsInstances = { char }
+    end
+    local resultado = workspace:Raycast(origem, direcao.Unit * dist, params)
+    if not resultado then return true end
+    -- verifica se o que foi atingido faz parte de um personagem inimigo
+    local hit = resultado.Instance
+    local hitChar = hit and (hit.Parent and hit.Parent:FindFirstChildOfClass("Humanoid") and hit.Parent)
+                        or (hit and hit:FindFirstChildOfClass("Humanoid") and hit)
+    return hitChar ~= nil
+end
+
+local function EhAlvoAimbot(plr)
+    if not plr or not plr.Team then return false end
+    if Estado.aimbotExcluidos[plr.Name] then return false end
+    local meuTime = MeuTime()
+    if not meuTime then return false end
+    local time = plr.Team.Name
+    if meuTime == "Inmates" then
+        return time == "Guards" or time == "Criminals"
+    elseif meuTime == "Guards" then
+        return time == "Inmates" or time == "Criminals"
+    elseif meuTime == "Criminals" then
+        return time == "Inmates" or time == "Guards"
+    end
+    return false
+end
+
+local function PararAimbot()
+    if _aimbotHB then _aimbotHB:Disconnect(); _aimbotHB = nil end
+    _aimbotCirculo.Visible = false
+end
+
+local function IniciarAimbot()
+    PararAimbot()
+    local centro = Camera.ViewportSize / 2
+
+    _aimbotHB = RunService.RenderStepped:Connect(function()
+        if not Estado.aimbotAtivo or Estado.hubFechado then
+            _aimbotCirculo.Visible = false
+            return
+        end
+
+        centro = Camera.ViewportSize / 2
+        _aimbotCirculo.Position = centro
+        _aimbotCirculo.Radius   = Estado.aimbotFov
+        _aimbotCirculo.Visible  = true
+
+        local melhorAlvo    = nil
+        local melhorDist    = math.huge
+        local myHRP         = GetHRP()
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == LocalPlayer then continue end
+            if not EhAlvoAimbot(plr) then continue end
+            local char = plr.Character
+            if not char then continue end
+            local parte = char:FindFirstChild(Estado.aimbotParte) or char:FindFirstChild("HumanoidRootPart")
+            if not parte then continue end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then continue end
+
+            local sp, onScreen, depth = WorldToViewport(parte.Position)
+            if not onScreen or depth <= 0 then continue end
+
+            local distTela = (sp - centro).Magnitude
+            if distTela > Estado.aimbotFov then continue end
+
+            -- verifica linha de visão (sem paredes)
+            if myHRP then
+                if not TemLinhaDaVisao(myHRP.Position, parte.Position) then continue end
+            end
+
+            if distTela < melhorDist then
+                melhorDist  = distTela
+                melhorAlvo  = parte
+            end
+        end
+
+        if melhorAlvo then
+            local alvoPosicao = melhorAlvo.Position
+            local vetor       = (alvoPosicao - Camera.CFrame.Position).Unit
+            local novaCF      = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + vetor)
+            Camera.CFrame     = Camera.CFrame:Lerp(novaCF, Estado.aimbotSmooth)
+        end
+    end)
+end
+
+-- ─── Spawn / CharacterAdded ────────────────────────────────────────────────────
+
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
     if Estado.fly then IniciarFly() end
     AplicarWalkSpeed()
 end)
+
+-- ─── Hub ───────────────────────────────────────────────────────────────────────
 
 local site = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/UnityDvloper/Codes/refs/heads/main/Hub.lua",
@@ -545,6 +708,8 @@ local site = loadstring(game:HttpGet(
 ))()
 
 local hub = site.novo("Reboco", "Escuro")
+
+-- ─── Auto Prender ──────────────────────────────────────────────────────────────
 
 local _prenderThread = nil
 local _arrestRemote  = nil
@@ -576,14 +741,12 @@ end
 local function RespawnarPersonagem()
     local hum = GetHum()
     if hum then hum.Health = 0 end
-
     local renasceu = false
     local conn
     conn = LocalPlayer.CharacterAdded:Connect(function()
         renasceu = true
         conn:Disconnect()
     end)
-
     local inicio = tick()
     while not renasceu and (tick() - inicio) < 5 do
         task.wait(0.05)
@@ -614,20 +777,16 @@ local function TentarPrender(alvo)
         if not Estado.prenderAuto or Estado.hubFechado then break end
         if not alvo or not alvo.Parent then break end
         if Estado.prenderExcluidos[alvo.Name] then break end
-
         local myHRP2  = GetHRP()
         local alvHRP2 = GetHRP(alvo)
         if myHRP2 and alvHRP2 then
             myHRP2.CFrame = alvHRP2.CFrame * CFrame.new(0, 0, -1)
         end
-
         xpcall(function()
             remote:InvokeServer(alvo, 1)
         end, function() end)
-
         task.wait(0)
     end
-
     return true
 end
 
@@ -640,10 +799,8 @@ end
 
 local function LoopPrender()
     local semCrimNotificado = false
-
     while Estado.prenderAuto and not Estado.hubFechado do
         local criminosos = GetCriminosos()
-
         if #criminosos == 0 then
             if not semCrimNotificado then
                 semCrimNotificado = true
@@ -652,19 +809,14 @@ local function LoopPrender()
             task.wait(0.5)
             continue
         end
-
         semCrimNotificado = false
-
         for _, alvo in ipairs(criminosos) do
             if not Estado.prenderAuto or Estado.hubFechado then break end
             if not alvo or not alvo.Parent then continue end
             if not EhCriminal(alvo) then continue end
             if Estado.prenderExcluidos[alvo.Name] then continue end
-
             hub:Notificar("Auto Prender", "Indo ate: " .. alvo.Name, "aviso", 2)
-
             local ok = TentarPrender(alvo)
-
             if ok then
                 ExecutarCooldown()
             elseif not alvo or not alvo.Parent then
@@ -672,10 +824,8 @@ local function LoopPrender()
             else
                 hub:Notificar("Auto Prender", alvo.Name .. " nao disponivel.", "info", 2)
             end
-
             task.wait(0)
         end
-
         task.wait(0)
     end
 end
@@ -690,6 +840,8 @@ local function PararPrenderAuto()
     Estado.prenderAuto = false
     if _prenderThread then task.cancel(_prenderThread); _prenderThread = nil end
 end
+
+-- ─── Helpers dropdown ──────────────────────────────────────────────────────────
 
 local function ListarJogadoresTodos()
     local lista = {}
@@ -721,24 +873,41 @@ local function ExtrairUsername(entrada)
     return username or entrada
 end
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ABA ESP
+-- ═══════════════════════════════════════════════════════════════════════════════
+
 local abaESP = hub:CriarAba("ESP", "👁️")
 
-abaESP:CriarSecao("Visibilidade")
+abaESP:CriarSecao("Modos de ESP")
 
-abaESP:CriarToggle("ESP Players", Estado.esp, function(v)
-    Estado.esp = v
+abaESP:CriarToggle("ESP Todos os Jogadores", Estado.espTodos, function(v)
+    Estado.espTodos = v
+    RecarregarESP()
     if v then
-        IniciarESP()
-        hub:Notificar("ESP", "Ativado!", "sucesso", 2)
+        hub:Notificar("ESP", "ESP Todos ativado!", "sucesso", 2)
     else
-        PararESP()
-        hub:Notificar("ESP", "Desativado", "info", 2)
+        if not Estado.espCustom then
+            hub:Notificar("ESP", "ESP desativado", "info", 2)
+        end
     end
 end)
 
-abaESP:CriarSecao("Filtro de Jogadores")
+abaESP:CriarToggle("ESP Customizado (Dropdown)", Estado.espCustom, function(v)
+    Estado.espCustom = v
+    RecarregarESP()
+    if v then
+        hub:Notificar("ESP", "ESP Customizado ativado!", "sucesso", 2)
+    else
+        if not Estado.espTodos then
+            hub:Notificar("ESP", "ESP Customizado desativado", "info", 2)
+        end
+    end
+end)
 
-abaESP:CriarTexto("Selecione jogadores especificos para o ESP. Deixe vazio para mostrar todos.")
+abaESP:CriarSecao("Filtro de Jogadores (ESP Customizado)")
+
+abaESP:CriarTexto("Selecione jogadores para o ESP Customizado.")
 
 local dropESPJogadores = abaESP:CriarDropdown(
     "ESP Especifico",
@@ -752,21 +921,18 @@ local dropESPJogadores = abaESP:CriarDropdown(
                 end
             end
         end
-        local temSel = false
-        for _ in pairs(Estado.espJogadoresSel) do temSel = true; break end
-        Estado.espFiltroAtivo = temSel
     end,
     {
         multi       = true,
         search      = true,
         maxVisible  = 6,
-        placeholder = "Todos os jogadores",
+        placeholder = "Selecionar jogadores...",
     }
 )
 
 abaESP:CriarBotao("Atualizar Lista", function()
     dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
-    hub:Notificar("ESP", "Lista de jogadores atualizada!", "info", 2)
+    hub:Notificar("ESP", "Lista atualizada!", "info", 2)
 end, { icone = "🔄" })
 
 abaESP:CriarSecao("Tracers")
@@ -816,6 +982,10 @@ abaESP:CriarColorPicker("Outros (branco)", Estado.corOutro, function(cor)
     AtualizarCoresOutros()
 end)
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ABA JOGADOR
+-- ═══════════════════════════════════════════════════════════════════════════════
+
 local abaJogador = hub:CriarAba("Jogador", "🧍")
 
 abaJogador:CriarSecao("Movimento")
@@ -832,9 +1002,7 @@ end)
 
 abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function(v)
     Estado.walkspeed = v
-    if Estado.walkspeedAtivo then
-        AplicarWalkSpeed()
-    end
+    if Estado.walkspeedAtivo then AplicarWalkSpeed() end
 end, { unidade = " ws" })
 
 abaJogador:CriarSecao("Teleporte")
@@ -858,34 +1026,12 @@ local dropTeleporte = abaJogador:CriarDropdown(
             hub:Notificar("Teleporte", "Personagem nao disponivel.", "erro", 2)
         end
     end,
-    false,
-    true,
-    6,
-    "Escolher jogador..."
+    false, true, 6, "Escolher jogador..."
 )
-
-Players.PlayerAdded:Connect(function()
-    if Estado.hubFechado then return end
-    task.wait(0.5)
-    dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
-    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
-end)
-
-Players.PlayerRemoving:Connect(function(plr)
-    if Estado.hubFechado then return end
-    task.wait(0.1)
-    dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
-    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
-    Estado.espJogadoresSel[plr.Name] = nil
-    Estado.prenderExcluidos[plr.Name] = nil
-    local temSel = false
-    for _ in pairs(Estado.espJogadoresSel) do temSel = true; break end
-    Estado.espFiltroAtivo = temSel
-end)
 
 abaJogador:CriarSecao("Prender")
 
-abaJogador:CriarTexto("Detecta Criminals, teleporta e prende automaticamente.\nApós prender: respawna rapido e vai pro proximo alvo.")
+abaJogador:CriarTexto("Detecta Criminals, teleporta e prende automaticamente.\nApos prender: respawna rapido e vai pro proximo alvo.")
 
 abaJogador:CriarToggle("Prender Automatico", Estado.prenderAuto, function(v)
     if v then
@@ -908,9 +1054,7 @@ local dropExcluidos = abaJogador:CriarDropdown(
         Estado.prenderExcluidos = {}
         if selMap then
             for nome, ativo in pairs(selMap) do
-                if ativo then
-                    Estado.prenderExcluidos[nome] = true
-                end
+                if ativo then Estado.prenderExcluidos[nome] = true end
             end
         end
         local cnt = 0
@@ -919,17 +1063,13 @@ local dropExcluidos = abaJogador:CriarDropdown(
             hub:Notificar("Auto Prender", cnt .. " jogador(es) excluido(s)", "aviso", 2)
         end
     end,
-    {
-        multi       = true,
-        search      = true,
-        maxVisible  = 6,
-        placeholder = "Nenhum excluido",
-    }
+    { multi = true, search = true, maxVisible = 6, placeholder = "Nenhum excluido" }
 )
 
-abaJogador:CriarBotao("Atualizar Lista", function()
+abaJogador:CriarBotao("Atualizar Listas", function()
     dropExcluidos:AtualizarOpcoes(ListarJogadoresTodos())
     dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
+    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
     hub:Notificar("Jogador", "Listas atualizadas!", "info", 2)
 end, { icone = "🔄" })
 
@@ -951,13 +1091,113 @@ abaJogador:CriarSlider("Velocidade de Voo", 10, 350, Estado.voarVel, function(v)
     Estado.voarVel = v
 end, { unidade = " ws" })
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ABA AIMBOT
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local abaAimbot = hub:CriarAba("Aimbot", "🎯")
+
+abaAimbot:CriarSecao("Configuracao")
+
+abaAimbot:CriarTexto("Alvo automatico baseado no seu time atual.\nNao mira atraves de paredes.\nFOV = circulo visivel na tela.")
+
+abaAimbot:CriarToggle("Aimbot Ativo", Estado.aimbotAtivo, function(v)
+    Estado.aimbotAtivo = v
+    if v then
+        IniciarAimbot()
+        hub:Notificar("Aimbot", "Ativado! Time: " .. (MeuTime() or "?"), "sucesso", 2)
+    else
+        PararAimbot()
+        hub:Notificar("Aimbot", "Desativado", "info", 2)
+    end
+end)
+
+abaAimbot:CriarSecao("Ajustes")
+
+abaAimbot:CriarSlider("FOV (raio na tela)", 30, 500, Estado.aimbotFov, function(v)
+    Estado.aimbotFov = v
+end, { unidade = "px" })
+
+abaAimbot:CriarSlider("Suavidade", 1, 100, math.floor(Estado.aimbotSmooth * 100), function(v)
+    Estado.aimbotSmooth = v / 100
+end, { unidade = "%" })
+
+abaAimbot:CriarDropdown(
+    "Parte Alvo",
+    { "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso" },
+    function(parte)
+        Estado.aimbotParte = parte
+        hub:Notificar("Aimbot", "Mirando em: " .. parte, "info", 2)
+    end,
+    { placeholder = "Head" }
+)
+
+abaAimbot:CriarSecao("Excecoes do Aimbot")
+
+abaAimbot:CriarTexto("Jogadores selecionados NAO serao mirados pelo Aimbot.")
+
+local dropAimbotExcluidos = abaAimbot:CriarDropdown(
+    "Excluir do Aimbot",
+    ListarJogadoresTodos(),
+    function(label, selMap)
+        Estado.aimbotExcluidos = {}
+        if selMap then
+            for nome, ativo in pairs(selMap) do
+                if ativo then Estado.aimbotExcluidos[nome] = true end
+            end
+        end
+        local cnt = 0
+        for _ in pairs(Estado.aimbotExcluidos) do cnt = cnt + 1 end
+        hub:Notificar("Aimbot", cnt .. " jogador(es) excluido(s)", "aviso", 2)
+    end,
+    { multi = true, search = true, maxVisible = 6, placeholder = "Nenhum excluido" }
+)
+
+abaAimbot:CriarBotao("Atualizar Lista", function()
+    dropAimbotExcluidos:AtualizarOpcoes(ListarJogadoresTodos())
+    hub:Notificar("Aimbot", "Lista atualizada!", "info", 2)
+end, { icone = "🔄" })
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ABA CONFIG
+-- ═══════════════════════════════════════════════════════════════════════════════
+
 local abaConfig = hub:CriarAba("Config", "⚙️")
 abaConfig:CriarSecao("Aparencia")
 hub:CriarDropdownTemas(abaConfig)
+
+-- ─── Atualizar listas quando jogadores entram/saem ────────────────────────────
+
+Players.PlayerAdded:Connect(function()
+    if Estado.hubFechado then return end
+    task.wait(0.5)
+    dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
+    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
+    dropExcluidos:AtualizarOpcoes(ListarJogadoresTodos())
+    dropAimbotExcluidos:AtualizarOpcoes(ListarJogadoresTodos())
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if Estado.hubFechado then return end
+    task.wait(0.1)
+    dropTeleporte:AtualizarOpcoes(ListarJogadoresTeleporte())
+    dropESPJogadores:AtualizarOpcoes(ListarJogadoresTodos())
+    dropExcluidos:AtualizarOpcoes(ListarJogadoresTodos())
+    dropAimbotExcluidos:AtualizarOpcoes(ListarJogadoresTodos())
+    Estado.espJogadoresSel[plr.Name]   = nil
+    Estado.prenderExcluidos[plr.Name]  = nil
+    Estado.aimbotExcluidos[plr.Name]   = nil
+    local temSel = false
+    for _ in pairs(Estado.espJogadoresSel) do temSel = true; break end
+end)
+
+-- ─── Fechar hub ───────────────────────────────────────────────────────────────
 
 hub:AoFechar(function()
     Estado.hubFechado = true
     PararESP()
     PararFly()
     PararPrenderAuto()
+    PararAimbot()
+    _aimbotCirculo:Remove()
 end)
