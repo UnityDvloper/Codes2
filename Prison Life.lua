@@ -20,9 +20,10 @@ local Estado = {
     corCriminal = Color3.fromRGB(255,  50,  50),
     corOutro    = Color3.fromRGB(255, 255, 255),
 
-    walkspeed   = 16,
-    fly         = false,
-    voarVel     = 50,
+    walkspeed        = 16,   -- padrão 16
+    walkspeedAtivo   = false, -- toggle do walkspeed (desativado por padrão)
+    fly              = false,
+    voarVel          = 50,
 
     prenderAuto = false,
 }
@@ -63,6 +64,16 @@ local function CorDoTime(plr)
     if nome == "Guards"    then return Estado.corGuard    end
     if nome == "Criminals" then return Estado.corCriminal end
     return Estado.corOutro
+end
+
+-- ══════════════════════════════════════════════
+--  WALKSPEED — aplicar / resetar
+-- ══════════════════════════════════════════════
+local function AplicarWalkSpeed()
+    local hum = GetHum()
+    if hum then
+        hum.WalkSpeed = Estado.walkspeedAtivo and Estado.walkspeed or 16
+    end
 end
 
 -- ══════════════════════════════════════════════
@@ -151,16 +162,20 @@ local function CriarBotoesMobile()
 
     local pad   = 12
     local bS    = BTN_SIZE
-    local row1Y = -(bS + pad + bS + pad + 8)
-    local row2Y = -(bS + pad + 8)
+    -- Linhas dos botões direcionais (WASD) — esquerda da tela
+    local row1Y = -(bS + pad + bS + pad + 8)  -- linha de cima (W)
+    local row2Y = -(bS + pad + 8)              -- linha de baixo (A/S/D)
     local leftX = pad
 
-    criarBotao(gui, "^",  leftX + bS + pad,   row1Y, "W")
-    criarBotao(gui, "<",  leftX,              row2Y, "A")
-    criarBotao(gui, "v",  leftX + bS + pad,   row2Y, "S")
-    criarBotao(gui, ">",  leftX + (bS+pad)*2, row2Y, "D")
+    criarBotao(gui, "^",  leftX + bS + pad,         row1Y, "W")
+    criarBotao(gui, "<",  leftX,                    row2Y, "A")
+    criarBotao(gui, "v",  leftX + bS + pad,         row2Y, "S")
+    criarBotao(gui, ">",  leftX + (bS + pad) * 2,  row2Y, "D")
+
+    -- Botões de subir/descer — lado direito, deslocados um pouco mais à esquerda
     local vp     = Camera.ViewportSize
-    local rightX = vp.X - bS - pad
+    -- Antes ficava em vp.X - bS - pad; agora recuamos mais 70px para a esquerda
+    local rightX = vp.X - bS - pad - 70
     criarBotao(gui, "+", rightX, row1Y, "Space")
     criarBotao(gui, "-", rightX, row2Y, "Shift")
 end
@@ -534,9 +549,8 @@ end
 
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(0.5)
-    if Estado.fly    then IniciarFly()   end
-    local hum = GetHum()
-    if hum then hum.WalkSpeed = Estado.walkspeed end
+    if Estado.fly then IniciarFly() end
+    AplicarWalkSpeed()
 end)
 
 -- ══════════════════════════════════════════════
@@ -547,7 +561,7 @@ local site = loadstring(game:HttpGet(
     true
 ))()
 
-local hub = site.novo("Reboco", "Escuro", "Lento")
+local hub = site.novo("Reboco", "Escuro")
 
 -- ══════════════════════════════════════════════
 --  PRENDER AUTOMÁTICO
@@ -723,7 +737,6 @@ abaESP:CriarToggle("Mostrar Tracers", Estado.espTracers, function(v)
     end
 end)
 
--- ✦ sliders agora com unidade e sem precisar de config table
 abaESP:CriarSlider("Grossura", 1, 20, Estado.espTracerGross, function(v)
     Estado.espTracerGross = v
     for _, d in pairs(_espDados) do
@@ -767,11 +780,28 @@ local abaJogador = hub:CriarAba("Jogador", "🧍")
 
 abaJogador:CriarSecao("Movimento")
 
+-- Referência ao slider de velocidade para poder ativar/desativar
+local sliderVelocidade = nil
 
-abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function(v)
+-- Toggle que ativa/desativa a velocidade customizada
+-- Quando OFF → WalkSpeed volta a 16; quando ON → aplica o valor do slider
+abaJogador:CriarToggle("Velocidade Customizada", Estado.walkspeedAtivo, function(v)
+    Estado.walkspeedAtivo = v
+    AplicarWalkSpeed()
+    if v then
+        hub:Notificar("Velocidade", "Ativada! " .. Estado.walkspeed .. " ws", "sucesso", 2)
+    else
+        hub:Notificar("Velocidade", "Resetada para 16 ws", "info", 2)
+    end
+end)
+
+-- Slider de velocidade — só tem efeito quando o toggle acima estiver ON
+sliderVelocidade = abaJogador:CriarSlider("Velocidade de Andar", 8, 250, Estado.walkspeed, function(v)
     Estado.walkspeed = v
-    local hum = GetHum()
-    if hum then hum.WalkSpeed = v end
+    -- Só aplica se o toggle estiver ativado
+    if Estado.walkspeedAtivo then
+        AplicarWalkSpeed()
+    end
 end, { unidade = " ws" })
 
 abaJogador:CriarSecao("Teleporte")
@@ -795,7 +825,6 @@ local function ExtrairUsername(entrada)
     return username or entrada
 end
 
--- ✦ dropdown agora com parâmetros diretos (sem {})
 local dropTeleporte = abaJogador:CriarDropdown(
     "Teleportar para",
     ListarJogadores(),
@@ -815,9 +844,9 @@ local dropTeleporte = abaJogador:CriarDropdown(
             hub:Notificar("Teleporte", "Personagem nao disponivel.", "erro", 2)
         end
     end,
-    false,       -- multi
-    true,        -- search
-    6,           -- maxVisible
+    false,
+    true,
+    6,
     "Escolher jogador..."
 )
 
