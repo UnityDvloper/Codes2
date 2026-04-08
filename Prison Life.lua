@@ -1502,6 +1502,10 @@ if not IS_MOBILE then
     end)
 end
 
+    abaCfg:CriarTeclaDeAtalho("Teste", Estado.keybindToggleHub, function()
+        print("teste")
+    end)
+
 abaCfg:CriarSecao("Informacoes do Script")
 
 abaCfg:CriarBadges({
