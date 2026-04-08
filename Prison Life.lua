@@ -47,13 +47,17 @@ local Estado = {
 
     -- Radar
     radarAtivo      = false,
-    radarAberto     = false,
     radarMinimizado = false,
     radarZoom       = 0.05,
     radarTamanho    = 220,
+    radarPosX       = nil,
+    radarPosY       = nil,
 
     -- Chat Spy
-    chatSpyAtivo = false,
+    chatSpyAtivo   = false,
+    chatSpyFiltro  = "Todos",
+    chatSpyPosX    = nil,
+    chatSpyPosY    = nil,
 
     -- Hub
     hubAberto = true,
@@ -107,7 +111,62 @@ local function AplicarWalkSpeed()
     end
 end
 
--- ─── ESP MELHORADO ─────────────────────────────────────────────────────────────
+-- ─── Drag Helper (arrastar GUIs) ──────────────────────────────────────────────
+
+local function FazerArrastavel(frame, handleBar, onMoved)
+    local dragging    = false
+    local dragStart   = nil
+    local startPos    = nil
+
+    local function BeginDrag(input)
+        dragging  = true
+        dragStart = input.Position
+        startPos  = frame.Position
+    end
+
+    local function EndDrag()
+        dragging = false
+        if onMoved then
+            onMoved(frame.Position)
+        end
+    end
+
+    local function UpdateDrag(input)
+        if not dragging then return end
+        local delta = input.Position - dragStart
+        local newX  = startPos.X.Offset + delta.X
+        local newY  = startPos.Y.Offset + delta.Y
+        -- Clamp dentro da tela
+        local vp  = Camera.ViewportSize
+        local sz  = frame.AbsoluteSize
+        local px  = frame.Position.X.Scale
+        local py  = frame.Position.Y.Scale
+        newX = math.clamp(newX, -px * vp.X, vp.X * (1 - px) - sz.X)
+        newY = math.clamp(newY, -py * vp.Y, vp.Y * (1 - py) - sz.Y)
+        frame.Position = UDim2.new(px, newX, py, newY)
+    end
+
+    handleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            BeginDrag(input)
+        end
+    end)
+    handleBar.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            EndDrag()
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            UpdateDrag(input)
+        end
+    end)
+end
+
+-- ─── ESP ───────────────────────────────────────────────────────────────────────
 
 local function EspAtivo()
     return Estado.espTodos or Estado.espCustom
@@ -135,7 +194,6 @@ local function RemoverEntradaESP(nome)
     if d.hpBarBg    then pcall(function() d.hpBarBg:Remove() end) end
     if d.lblNome2D  then pcall(function() d.lblNome2D:Remove() end) end
     if d.lblDist2D  then pcall(function() d.lblDist2D:Remove() end) end
-    -- skeleton
     if d.skeleton then
         for _, ln in pairs(d.skeleton) do
             pcall(function() ln:Remove() end)
@@ -191,7 +249,6 @@ local function CriarEntradaESP(plr)
 
     local cor = CorDoTime(plr)
 
-    -- Highlight (fill)
     local hl = Instance.new("Highlight")
     hl.FillColor           = cor
     hl.OutlineColor        = cor
@@ -201,7 +258,6 @@ local function CriarEntradaESP(plr)
     hl.Adornee             = char
     hl.Parent              = char
 
-    -- Billboard GUI (nome + info)
     local gui = Instance.new("BillboardGui")
     gui.AlwaysOnTop = true
     gui.Size        = UDim2.new(0, 160, 0, 20)
@@ -221,24 +277,16 @@ local function CriarEntradaESP(plr)
     lblNome.TextStrokeColor3       = Color3.new(0,0,0)
     lblNome.Parent                 = gui
 
-    -- Drawing lines: tracer
     local tracer = CriarDrawingLine(cor, Estado.espTracerGross, Estado.espTracerTransp)
-
-    -- Drawing: box 2D (4 linhas)
-    local boxT = CriarDrawingLine(cor, 1.5, 0)
-    local boxB = CriarDrawingLine(cor, 1.5, 0)
-    local boxL = CriarDrawingLine(cor, 1.5, 0)
-    local boxR = CriarDrawingLine(cor, 1.5, 0)
-
-    -- Drawing: barra de HP
-    local hpBg = CriarDrawingLine(Color3.fromRGB(20,20,20), 4, 0)
+    local boxT   = CriarDrawingLine(cor, 1.5, 0)
+    local boxB   = CriarDrawingLine(cor, 1.5, 0)
+    local boxL   = CriarDrawingLine(cor, 1.5, 0)
+    local boxR   = CriarDrawingLine(cor, 1.5, 0)
+    local hpBg   = CriarDrawingLine(Color3.fromRGB(20,20,20), 4, 0)
     local hpFill = CriarDrawingLine(Color3.fromRGB(60,220,100), 3, 0)
-
-    -- Drawing: nome 2D e distancia
     local nomeTxt = CriarDrawingText(cor, 12)
     local distTxt = CriarDrawingText(Color3.fromRGB(200,200,200), 11)
 
-    -- Skeleton lines
     local skeleton = {}
     for _ = 1, #SKELETON_JOINTS do
         table.insert(skeleton, CriarDrawingLine(cor, 1, 0.2))
@@ -310,7 +358,6 @@ local function AtualizarCoresOutros()
     end
 end
 
--- calcula bounding box 2D de um personagem
 local function GetBoundingBox2D(char)
     local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
     local visible = false
@@ -329,7 +376,6 @@ local function GetBoundingBox2D(char)
         end
     end
     if not visible then return nil end
-    -- adiciona padding
     local pad = 4
     return {
         minX = minX - pad,
@@ -404,7 +450,6 @@ local function IniciarESP()
         for _, d in pairs(_espDados) do
             local plr = d.plr
             if not plr or not plr.Character then
-                -- esconde tudo
                 if d.line      then d.line.Visible      = false end
                 if d.boxTop    then d.boxTop.Visible    = false end
                 if d.boxBottom then d.boxBottom.Visible = false end
@@ -426,13 +471,11 @@ local function IniciarESP()
             local deveVer = EspAtivo() and DeveMostrarESP(plr)
             local cor     = CorDoTime(plr)
 
-            -- Highlight
             if d.hl and d.hl.Parent then
                 d.hl.Enabled      = deveVer
                 d.hl.FillColor    = cor
                 d.hl.OutlineColor = cor
             end
-            -- BillboardGui nome
             if d.gui and d.gui.Parent then
                 d.gui.Enabled = deveVer and Estado.espNomes
             end
@@ -464,31 +507,25 @@ local function IniciarESP()
                         or pct > 0.3 and Color3.fromRGB(255,190,40)
                         or              Color3.fromRGB(220,55,55)
 
-            -- Bounding Box 2D
             local bb = GetBoundingBox2D(char)
             local spHRP, onSc, depth = WorldToViewport(hrp.Position)
 
             if bb and onSc and depth > 0 then
                 local x1,y1,x2,y2 = bb.minX, bb.minY, bb.maxX, bb.maxY
 
-                -- Box
                 if Estado.espBoxes then
-                    -- topo
                     d.boxTop.From    = Vector2.new(x1, y1)
                     d.boxTop.To      = Vector2.new(x2, y1)
                     d.boxTop.Color   = cor
                     d.boxTop.Visible = true
-                    -- bottom
                     d.boxBottom.From    = Vector2.new(x1, y2)
                     d.boxBottom.To      = Vector2.new(x2, y2)
                     d.boxBottom.Color   = cor
                     d.boxBottom.Visible = true
-                    -- left
                     d.boxLeft.From    = Vector2.new(x1, y1)
                     d.boxLeft.To      = Vector2.new(x1, y2)
                     d.boxLeft.Color   = cor
                     d.boxLeft.Visible = true
-                    -- right
                     d.boxRight.From    = Vector2.new(x2, y1)
                     d.boxRight.To      = Vector2.new(x2, y2)
                     d.boxRight.Color   = cor
@@ -500,21 +537,17 @@ local function IniciarESP()
                     d.boxRight.Visible  = false
                 end
 
-                -- HP Bar (esquerda da box)
                 if Estado.espHP then
                     local barH = bb.h
                     local barX = x1 - 6
                     local barY1 = y1
                     local barY2 = y1 + barH
-
                     d.hpBarBg.From      = Vector2.new(barX, barY1)
                     d.hpBarBg.To        = Vector2.new(barX, barY2)
                     d.hpBarBg.Color     = Color3.fromRGB(20,20,20)
                     d.hpBarBg.Thickness = 4
                     d.hpBarBg.Visible   = true
-
-                    local fillY2 = y1 + barH * pct
-                    d.hpBar.From      = Vector2.new(barX, barY2) -- de baixo pra cima
+                    d.hpBar.From      = Vector2.new(barX, barY2)
                     d.hpBar.To        = Vector2.new(barX, barY2 - barH * pct)
                     d.hpBar.Color     = barCor
                     d.hpBar.Thickness = 3
@@ -524,7 +557,6 @@ local function IniciarESP()
                     d.hpBarBg.Visible = false
                 end
 
-                -- Nome 2D (acima da box)
                 if Estado.espNomes then
                     d.lblNome2D.Position = Vector2.new((x1+x2)/2, y1 - 16)
                     d.lblNome2D.Text     = plr.DisplayName
@@ -534,7 +566,6 @@ local function IniciarESP()
                     d.lblNome2D.Visible = false
                 end
 
-                -- Distancia 2D (abaixo da box)
                 if Estado.espDistancia then
                     local spd = hum.MoveDirection.Magnitude > 0.1 and "▶ correndo" or "◼ parado"
                     d.lblDist2D.Position = Vector2.new((x1+x2)/2, y2 + 4)
@@ -556,7 +587,6 @@ local function IniciarESP()
                 d.lblDist2D.Visible = false
             end
 
-            -- Skeleton
             if Estado.espSkeleton then
                 for i, pair in ipairs(SKELETON_JOINTS) do
                     local pA = char:FindFirstChild(pair[1])
@@ -582,7 +612,6 @@ local function IniciarESP()
                 for _, s in pairs(d.skeleton or {}) do s.Visible = false end
             end
 
-            -- Tracer
             if d.line then
                 local sp2, onSc2, depth2 = WorldToViewport(hrp.Position - Vector3.new(0,2.5,0))
                 if Estado.espTracers and onSc2 and depth2 > 0 then
@@ -819,7 +848,6 @@ local function EhAlvoAimbot(plr)
     return false
 end
 
--- FOV circle drawing
 local _fovCircle = Drawing.new("Circle")
 _fovCircle.Visible      = false
 _fovCircle.Filled       = false
@@ -886,22 +914,23 @@ local function IniciarAimbot()
     end)
 end
 
--- ─── RADAR ─────────────────────────────────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ─── RADAR MELHORADO (arrastável, redimensionável, sem bug de posição) ─────────
+-- ═══════════════════════════════════════════════════════════════════════════════
 
-local _radarGui         = nil
-local _radarFrame       = nil
-local _radarCanvas      = nil
-local _radarTitleBar    = nil
-local _radarMiniFrame   = nil -- frame minimizado (so barra)
-local _radarPontosGUI   = {}
-local _radarConn        = nil
+local _radarGui       = nil
+local _radarFrame     = nil
+local _radarCanvas    = nil
+local _radarMiniFrame = nil
+local _radarPontosGUI = {}
+local _radarConn      = nil
+local _radarResizing  = false
 
 local function RemoverRadar()
     if _radarConn then _radarConn:Disconnect(); _radarConn = nil end
     if _radarGui and _radarGui.Parent then _radarGui:Destroy(); _radarGui = nil end
     _radarFrame     = nil
     _radarCanvas    = nil
-    _radarTitleBar  = nil
     _radarMiniFrame = nil
     _radarPontosGUI = {}
 end
@@ -919,16 +948,21 @@ local function CriarRadar()
     _radarGui = gui
 
     local SZ   = Estado.radarTamanho
-    local barH = 28
+    local barH = 30
+    local vp   = Camera.ViewportSize
+
+    -- Posição salva ou padrão (canto inferior direito)
+    local posX = Estado.radarPosX or (vp.X - SZ - 16)
+    local posY = Estado.radarPosY or (vp.Y - SZ - barH - 16)
 
     -- Frame principal
     local frame = Instance.new("Frame")
     frame.Size              = UDim2.new(0, SZ, 0, SZ + barH)
-    frame.Position          = UDim2.new(1, -SZ - 16, 1, -SZ - barH - 16)
+    frame.Position          = UDim2.new(0, posX, 0, posY)
     frame.BackgroundColor3  = Color3.fromRGB(8, 8, 14)
     frame.BackgroundTransparency = 0.08
     frame.BorderSizePixel   = 0
-    frame.ClipsDescendants  = true
+    frame.ClipsDescendants  = false
     frame.Parent            = gui
     _radarFrame = frame
 
@@ -938,38 +972,87 @@ local function CriarRadar()
 
     local stroke = Instance.new("UIStroke")
     stroke.Color        = Color3.fromRGB(60, 180, 255)
-    stroke.Thickness    = 1.2
-    stroke.Transparency = 0.4
+    stroke.Thickness    = 1.5
+    stroke.Transparency = 0.3
     stroke.Parent       = frame
 
-    -- Barra de titulo
+    -- ── Barra de título (arrastável) ──
     local titleBar = Instance.new("Frame")
     titleBar.Size             = UDim2.new(1, 0, 0, barH)
     titleBar.Position         = UDim2.new(0, 0, 0, 0)
-    titleBar.BackgroundColor3 = Color3.fromRGB(20, 60, 110)
-    titleBar.BackgroundTransparency = 0.15
+    titleBar.BackgroundColor3 = Color3.fromRGB(15, 50, 100)
+    titleBar.BackgroundTransparency = 0.1
     titleBar.BorderSizePixel  = 0
+    titleBar.ZIndex           = 10
     titleBar.Parent           = frame
-    _radarTitleBar = titleBar
 
-    local tc2 = Instance.new("UICorner")
-    tc2.CornerRadius = UDim.new(0,10)
-    tc2.Parent = titleBar
+    local tc = Instance.new("UICorner")
+    tc.CornerRadius = UDim.new(0,10)
+    tc.Parent = titleBar
+
+    -- Ícone de mover
+    local moveIcon = Instance.new("TextLabel")
+    moveIcon.Size                   = UDim2.new(0, 20, 1, 0)
+    moveIcon.Position               = UDim2.new(0, 8, 0, 0)
+    moveIcon.BackgroundTransparency = 1
+    moveIcon.Text                   = "✥"
+    moveIcon.TextColor3             = Color3.fromRGB(100, 180, 255)
+    moveIcon.Font                   = Enum.Font.GothamBold
+    moveIcon.TextSize               = 14
+    moveIcon.ZIndex                 = 11
+    moveIcon.Parent                 = titleBar
 
     local titleLbl = Instance.new("TextLabel")
-    titleLbl.Size                   = UDim2.new(1,-50,1,0)
-    titleLbl.Position               = UDim2.new(0,10,0,0)
+    titleLbl.Size                   = UDim2.new(1,-80,1,0)
+    titleLbl.Position               = UDim2.new(0,30,0,0)
     titleLbl.BackgroundTransparency = 1
     titleLbl.Text                   = "📡  RADAR"
     titleLbl.TextColor3             = Color3.fromRGB(140, 200, 255)
     titleLbl.Font                   = Enum.Font.GothamBold
     titleLbl.TextSize               = 13
     titleLbl.TextXAlignment         = Enum.TextXAlignment.Left
+    titleLbl.ZIndex                 = 11
     titleLbl.Parent                 = titleBar
 
-    -- Canvas do radar (circulo)
+    -- Botão minimizar
+    local btnMin = Instance.new("TextButton")
+    btnMin.Size                   = UDim2.new(0, 26, 0, 20)
+    btnMin.Position               = UDim2.new(1, -56, 0, 5)
+    btnMin.BackgroundColor3       = Color3.fromRGB(30, 80, 150)
+    btnMin.BackgroundTransparency = 0.3
+    btnMin.Text                   = "—"
+    btnMin.TextColor3             = Color3.fromRGB(200, 220, 255)
+    btnMin.Font                   = Enum.Font.GothamBold
+    btnMin.TextSize               = 12
+    btnMin.BorderSizePixel        = 0
+    btnMin.ZIndex                 = 12
+    btnMin.AutoButtonColor        = false
+    btnMin.Parent                 = titleBar
+    local btnMinC = Instance.new("UICorner")
+    btnMinC.CornerRadius = UDim.new(0,5)
+    btnMinC.Parent = btnMin
+
+    -- Botão fechar
+    local btnClose = Instance.new("TextButton")
+    btnClose.Size                   = UDim2.new(0, 22, 0, 20)
+    btnClose.Position               = UDim2.new(1, -28, 0, 5)
+    btnClose.BackgroundColor3       = Color3.fromRGB(160, 30, 30)
+    btnClose.BackgroundTransparency = 0.3
+    btnClose.Text                   = "✕"
+    btnClose.TextColor3             = Color3.new(1,1,1)
+    btnClose.Font                   = Enum.Font.GothamBold
+    btnClose.TextSize               = 11
+    btnClose.BorderSizePixel        = 0
+    btnClose.ZIndex                 = 12
+    btnClose.AutoButtonColor        = false
+    btnClose.Parent                 = titleBar
+    local btnCloseC = Instance.new("UICorner")
+    btnCloseC.CornerRadius = UDim.new(0,5)
+    btnCloseC.Parent = btnClose
+
+    -- ── Canvas do radar ──
     local canvas = Instance.new("Frame")
-    canvas.Size              = UDim2.new(1, -8, 1, -barH - 8)
+    canvas.Size              = UDim2.new(1, -8, 1, -(barH + 8))
     canvas.Position          = UDim2.new(0, 4, 0, barH + 4)
     canvas.BackgroundColor3  = Color3.fromRGB(4, 14, 28)
     canvas.BackgroundTransparency = 0.05
@@ -982,109 +1065,169 @@ local function CriarRadar()
     canvasCorner.CornerRadius = UDim.new(0, 8)
     canvasCorner.Parent       = canvas
 
-    -- Cruzes de referencia
-    local function CriarLinha(parent, sizeX, sizeY, posX, posY, transp)
+    -- Linhas de cruz
+    local function CriarLinhaRef(parent, sizeX, sizeY, posX2, posY2, transp)
         local l = Instance.new("Frame")
         l.Size                   = UDim2.new(sizeX[1], sizeX[2], sizeY[1], sizeY[2])
-        l.Position               = UDim2.new(posX[1], posX[2], posY[1], posY[2])
+        l.Position               = UDim2.new(posX2[1], posX2[2], posY2[1], posY2[2])
         l.BackgroundColor3       = Color3.fromRGB(60, 180, 255)
         l.BackgroundTransparency = transp or 0.8
         l.BorderSizePixel        = 0
         l.Parent                 = parent
     end
-    -- horizontal
-    CriarLinha(canvas, {1,0},{0,1},{0,0},{0.5,-0.5}, 0.7)
-    -- vertical
-    CriarLinha(canvas, {0,1},{1,0},{0.5,-0.5},{0,0}, 0.7)
+    CriarLinhaRef(canvas, {1,0},{0,1},{0,0},{0.5,-0.5}, 0.75)
+    CriarLinhaRef(canvas, {0,1},{1,0},{0.5,-0.5},{0,0}, 0.75)
 
-    -- Circulo de referencia (CSS via UICorner trick)
+    -- Círculo de referência
     local circulo = Instance.new("Frame")
-    circulo.Size              = UDim2.new(0.7,0,0.7,0)
-    circulo.Position          = UDim2.new(0.15,0,0.15,0)
+    circulo.Size                   = UDim2.new(0.7,0,0.7,0)
+    circulo.Position               = UDim2.new(0.15,0,0.15,0)
     circulo.BackgroundTransparency = 1
-    circulo.BorderSizePixel   = 0
-    circulo.Parent            = canvas
+    circulo.BorderSizePixel        = 0
+    circulo.Parent                 = canvas
     local circ2 = Instance.new("UICorner")
     circ2.CornerRadius = UDim.new(1,0)
     circ2.Parent = circulo
     local circStroke = Instance.new("UIStroke")
     circStroke.Color        = Color3.fromRGB(60, 180, 255)
     circStroke.Thickness    = 1
-    circStroke.Transparency = 0.7
+    circStroke.Transparency = 0.65
     circStroke.Parent       = circulo
 
-    -- Ponto do jogador local (centro)
+    -- Círculo externo (borda do radar)
+    local circOuter = Instance.new("Frame")
+    circOuter.Size                   = UDim2.new(0.95,0,0.95,0)
+    circOuter.Position               = UDim2.new(0.025,0,0.025,0)
+    circOuter.BackgroundTransparency = 1
+    circOuter.BorderSizePixel        = 0
+    circOuter.Parent                 = canvas
+    local circOuterC = Instance.new("UICorner")
+    circOuterC.CornerRadius = UDim.new(1,0)
+    circOuterC.Parent = circOuter
+    local circOuterS = Instance.new("UIStroke")
+    circOuterS.Color        = Color3.fromRGB(60, 180, 255)
+    circOuterS.Thickness    = 1.5
+    circOuterS.Transparency = 0.45
+    circOuterS.Parent       = circOuter
+
+    -- Ponto local
     local meuponto = Instance.new("Frame")
-    meuponto.Size              = UDim2.new(0, 8, 0, 8)
-    meuponto.Position          = UDim2.new(0.5,-4,0.5,-4)
+    meuponto.Size              = UDim2.new(0, 10, 0, 10)
+    meuponto.Position          = UDim2.new(0.5,-5,0.5,-5)
     meuponto.BackgroundColor3  = Color3.fromRGB(255, 255, 100)
     meuponto.BorderSizePixel   = 0
+    meuponto.ZIndex            = 5
     meuponto.Parent            = canvas
     local mc = Instance.new("UICorner")
     mc.CornerRadius = UDim.new(1,0)
     mc.Parent = meuponto
 
-    -- Label Norte
-    local norteL = Instance.new("TextLabel")
-    norteL.Size                   = UDim2.new(0,20,0,14)
-    norteL.Position               = UDim2.new(0.5,-10,0,2)
-    norteL.BackgroundTransparency = 1
-    norteL.Text                   = "N"
-    norteL.TextColor3             = Color3.fromRGB(140,200,255)
-    norteL.Font                   = Enum.Font.GothamBold
-    norteL.TextSize               = 10
-    norteL.Parent                 = canvas
+    -- Indicadores N/S/L/O
+    local function CriarLabelDir(txt, px, py)
+        local l = Instance.new("TextLabel")
+        l.Size                   = UDim2.new(0,16,0,14)
+        l.Position               = UDim2.new(px,-8,py,-7)
+        l.BackgroundTransparency = 1
+        l.Text                   = txt
+        l.TextColor3             = Color3.fromRGB(140,200,255)
+        l.Font                   = Enum.Font.GothamBold
+        l.TextSize               = 9
+        l.ZIndex                 = 4
+        l.Parent                 = canvas
+    end
+    CriarLabelDir("N", 0.5, 0.02)
+    CriarLabelDir("S", 0.5, 0.92)
+    CriarLabelDir("L", 0.92, 0.5)
+    CriarLabelDir("O", 0.02, 0.5)
 
-    -- Frame minimizado (barra no canto)
-    local miniFrame = Instance.new("Frame")
-    miniFrame.Size             = UDim2.new(0, SZ, 0, barH)
-    miniFrame.Position         = UDim2.new(1, -SZ - 16, 1, -barH - 16)
-    miniFrame.BackgroundColor3 = Color3.fromRGB(20, 60, 110)
-    miniFrame.BackgroundTransparency = 0.15
-    miniFrame.BorderSizePixel  = 0
-    miniFrame.Visible          = false
-    miniFrame.Parent           = gui
-    _radarMiniFrame = miniFrame
+    -- ── Handle de redimensionar (canto inferior direito) ──
+    local resizeHandle = Instance.new("TextButton")
+    resizeHandle.Size                   = UDim2.new(0, 18, 0, 18)
+    resizeHandle.Position               = UDim2.new(1, -18, 1, -18)
+    resizeHandle.BackgroundColor3       = Color3.fromRGB(40, 120, 200)
+    resizeHandle.BackgroundTransparency = 0.4
+    resizeHandle.Text                   = "⊿"
+    resizeHandle.TextColor3             = Color3.fromRGB(140,200,255)
+    resizeHandle.Font                   = Enum.Font.GothamBold
+    resizeHandle.TextSize               = 11
+    resizeHandle.BorderSizePixel        = 0
+    resizeHandle.ZIndex                 = 15
+    resizeHandle.AutoButtonColor        = false
+    resizeHandle.Parent                 = frame
+    local resizeC = Instance.new("UICorner")
+    resizeC.CornerRadius = UDim.new(0,4)
+    resizeC.Parent = resizeHandle
 
-    local miniC = Instance.new("UICorner")
-    miniC.CornerRadius = UDim.new(0,10)
-    miniC.Parent = miniFrame
+    -- ── Lógica de arrastar (mover) ──
+    FazerArrastavel(frame, titleBar, function(pos)
+        Estado.radarPosX = pos.X.Offset
+        Estado.radarPosY = pos.Y.Offset
+    end)
 
-    local miniStroke = Instance.new("UIStroke")
-    miniStroke.Color     = Color3.fromRGB(60,180,255)
-    miniStroke.Thickness = 1.2
-    miniStroke.Transparency = 0.4
-    miniStroke.Parent    = miniFrame
+    -- ── Lógica de redimensionar ──
+    local resizeDragging = false
+    local resizeStart    = nil
+    local resizeStartSZ  = nil
 
-    local miniLbl = Instance.new("TextLabel")
-    miniLbl.Size                   = UDim2.new(1,-8,1,0)
-    miniLbl.Position               = UDim2.new(0,8,0,0)
-    miniLbl.BackgroundTransparency = 1
-    miniLbl.Text                   = "📡  RADAR  [M para expandir]"
-    miniLbl.TextColor3             = Color3.fromRGB(140, 200, 255)
-    miniLbl.Font                   = Enum.Font.GothamBold
-    miniLbl.TextSize               = 12
-    miniLbl.TextXAlignment         = Enum.TextXAlignment.Left
-    miniLbl.Parent                 = miniFrame
+    resizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            resizeDragging = true
+            resizeStart   = input.Position
+            resizeStartSZ = frame.AbsoluteSize
+        end
+    end)
+    resizeHandle.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            resizeDragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not resizeDragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local delta  = input.Position - resizeStart
+        local newSZ  = math.clamp(resizeStartSZ.X + delta.X, 120, 450)
+        Estado.radarTamanho = newSZ
+        frame.Size = UDim2.new(0, newSZ, 0, newSZ + barH)
+    end)
 
-    -- Atualizar radar
+    -- ── Botões minimizar / fechar ──
+    btnMin.MouseButton1Click:Connect(function()
+        Estado.radarMinimizado = not Estado.radarMinimizado
+        canvas.Visible          = not Estado.radarMinimizado
+        resizeHandle.Visible    = not Estado.radarMinimizado
+        if Estado.radarMinimizado then
+            frame.Size = UDim2.new(0, Estado.radarTamanho, 0, barH)
+            btnMin.Text = "▲"
+        else
+            frame.Size = UDim2.new(0, Estado.radarTamanho, 0, Estado.radarTamanho + barH)
+            btnMin.Text = "—"
+        end
+    end)
+
+    btnClose.MouseButton1Click:Connect(function()
+        Estado.radarAtivo = false
+        RemoverRadar()
+    end)
+
+    -- ── Loop de atualização ──
     _radarConn = RunService.RenderStepped:Connect(function()
-        if not Estado.radarAtivo then return end
+        if not Estado.radarAtivo or Estado.radarMinimizado then return end
 
         local myHRP = GetHRP()
         if not myHRP then return end
 
-        local myCF   = myHRP.CFrame
         local camY   = Camera.CFrame.LookVector
         local angulo = math.atan2(camY.X, camY.Z)
 
-        local zoom  = Estado.radarZoom
-        local cSZ   = canvas.AbsoluteSize
-        local cX    = cSZ.X / 2
-        local cY    = cSZ.Y / 2
-        local raioMax = math.min(cX, cY)
+        local cSZ    = canvas.AbsoluteSize
+        local cX     = cSZ.X / 2
+        local cY     = cSZ.Y / 2
+        local raioMax = math.min(cX, cY) * 0.9
 
-        -- Limpa pontos velhos
+        -- Limpa pontos de jogadores que saíram
         for nome, ponto in pairs(_radarPontosGUI) do
             local plr = Players:FindFirstChild(nome)
             if not plr or not plr.Character then
@@ -1108,15 +1251,14 @@ local function CriarRadar()
             local rx = relativo.Position.X
             local rz = relativo.Position.Z
 
-            -- rotacionar pelo angulo da camera
             local cos = math.cos(-angulo)
             local sin = math.sin(-angulo)
             local px  = rx * cos - rz * sin
             local pz  = rx * sin + rz * cos
 
-            local dx  = px * zoom
-            local dz  = pz * zoom
-            -- clamp ao raio
+            local dx  = px * Estado.radarZoom
+            local dz  = pz * Estado.radarZoom
+
             local mag = math.sqrt(dx*dx + dz*dz)
             if mag > raioMax - 6 then
                 local f = (raioMax - 6) / mag
@@ -1129,80 +1271,176 @@ local function CriarRadar()
 
             local cor = CorDoTime(plr)
 
-            -- cria ou reutiliza ponto
+            -- Tamanho do ponto baseado na distância (mais perto = maior)
+            local dist3D = (myHRP.Position - hrp2.Position).Magnitude
+            local ptSize = math.clamp(math.floor(12 - dist3D * 0.04), 5, 12)
+
             local ponto = _radarPontosGUI[plr.Name]
             if not ponto or not ponto.Parent then
                 ponto = Instance.new("Frame")
-                ponto.Size             = UDim2.new(0,8,0,8)
                 ponto.BackgroundColor3 = cor
                 ponto.BorderSizePixel  = 0
+                ponto.ZIndex           = 3
                 local pc = Instance.new("UICorner")
                 pc.CornerRadius = UDim.new(1,0)
                 pc.Parent = ponto
+
+                -- Tooltip de nome
+                local tooltip = Instance.new("TextLabel")
+                tooltip.Size                   = UDim2.new(0, 80, 0, 16)
+                tooltip.Position               = UDim2.new(0.5, -40, 0, -18)
+                tooltip.BackgroundColor3       = Color3.fromRGB(10,10,20)
+                tooltip.BackgroundTransparency = 0.2
+                tooltip.Text                   = plr.Name
+                tooltip.TextColor3             = Color3.new(1,1,1)
+                tooltip.Font                   = Enum.Font.Gotham
+                tooltip.TextSize               = 9
+                tooltip.BorderSizePixel        = 0
+                tooltip.ZIndex                 = 6
+                tooltip.Visible                = false
+                tooltip.Name                   = "Tooltip"
+                tooltip.Parent                 = ponto
+                local ttc = Instance.new("UICorner")
+                ttc.CornerRadius = UDim.new(0,4)
+                ttc.Parent = tooltip
+
+                ponto.MouseEnter:Connect(function()
+                    tooltip.Visible = true
+                end)
+                ponto.MouseLeave:Connect(function()
+                    tooltip.Visible = false
+                end)
+
                 ponto.Parent = canvas
                 _radarPontosGUI[plr.Name] = ponto
             end
 
+            ponto.Size             = UDim2.new(0, ptSize, 0, ptSize)
             ponto.BackgroundColor3 = cor
-            ponto.Position = UDim2.new(0, math.floor(screenX - 4), 0, math.floor(screenY - 4))
-            ponto.Visible  = true
-
-            -- tooltip com nome no hover (via tag)
-            ponto.Name = plr.Name
+            ponto.Position         = UDim2.new(0, math.floor(screenX - ptSize/2), 0, math.floor(screenY - ptSize/2))
+            ponto.Visible          = true
+            ponto.Name             = plr.Name
         end
     end)
-
-    -- Atualizar visibilidade minimizado/expandido
-    local function AtualizarVisibilidadeRadar()
-        if not Estado.radarAtivo then
-            _radarFrame.Visible    = false
-            _radarMiniFrame.Visible = false
-        elseif Estado.radarMinimizado then
-            _radarFrame.Visible     = false
-            _radarMiniFrame.Visible = true
-        else
-            _radarFrame.Visible     = true
-            _radarMiniFrame.Visible = false
-        end
-    end
-
-    Estado._atualizarRadarVis = AtualizarVisibilidadeRadar
-    AtualizarVisibilidadeRadar()
 end
 
-local function AtualizarVisibilidadeRadar()
-    if Estado._atualizarRadarVis then Estado._atualizarRadarVis() end
-end
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ─── CHAT SPY MELHORADO (arrastável, filtros, timestamps, destaque) ────────────
+-- ═══════════════════════════════════════════════════════════════════════════════
 
--- ─── CHAT SPY ──────────────────────────────────────────────────────────────────
-
-local _chatSpyGui   = nil
-local _chatSpyFrame = nil
+local _chatSpyGui    = nil
+local _chatSpyFrame  = nil
 local _chatSpyScroll = nil
-local _chatSpyConn  = nil
-local _chatSpyMsgs  = {}
+local _chatSpyConn   = nil
+local _chatSpyMsgs   = {}
+local _chatSpyContagem = { Inmates = 0, Guards = 0, Criminals = 0, Outros = 0, Total = 0 }
 
 local COR_CHAT = {
     sistema  = Color3.fromRGB(140, 200, 255),
     local_   = Color3.fromRGB(100, 255, 140),
+    inmate   = Color3.fromRGB(255, 160, 50),
+    guard    = Color3.fromRGB(80, 160, 255),
+    criminal = Color3.fromRGB(255, 80, 80),
     outro    = Color3.fromRGB(220, 220, 220),
     titulo   = Color3.fromRGB(255, 200, 80),
+    timestamp = Color3.fromRGB(120, 120, 120),
+    sistema_msg = Color3.fromRGB(80, 200, 150),
 }
 
-local function AdicionarMensagemChatSpy(remetente, texto, cor)
+local function GetCorChat(plr)
+    if not plr or plr == LocalPlayer then return COR_CHAT.local_ end
+    if not plr.Team then return COR_CHAT.outro end
+    local t = plr.Team.Name
+    if t == "Inmates"   then return COR_CHAT.inmate   end
+    if t == "Guards"    then return COR_CHAT.guard    end
+    if t == "Criminals" then return COR_CHAT.criminal end
+    return COR_CHAT.outro
+end
+
+local function GetTimestamp()
+    local t   = os.time()
+    local sec = t % 60
+    local min = math.floor(t / 60) % 60
+    local hr  = math.floor(t / 3600) % 24
+    return string.format("%02d:%02d:%02d", hr, min, sec)
+end
+
+local function DeveMostrarMensagem(remetente)
+    local filtro = Estado.chatSpyFiltro
+    if filtro == "Todos" then return true end
+    local plr = Players:FindFirstChild(remetente)
+    if not plr then return filtro == "Outros" end
+    if not plr.Team then return filtro == "Outros" end
+    return plr.Team.Name == filtro
+end
+
+local _chatContLabel = nil -- label de contagem
+
+local function AtualizarContagemChat()
+    if not _chatContLabel then return end
+    local t = _chatSpyContagem
+    _chatContLabel.Text = string.format(
+        "📊 I:%d G:%d C:%d O:%d | Total:%d",
+        t.Inmates, t.Guards, t.Criminals, t.Outros, t.Total
+    )
+end
+
+local function AdicionarMensagemChatSpy(remetente, texto, cor, teamName)
     if not _chatSpyScroll then return end
-    table.insert(_chatSpyMsgs, {r=remetente, t=texto, c=cor})
-    if #_chatSpyMsgs > 100 then table.remove(_chatSpyMsgs, 1) end
+
+    teamName = teamName or "Outros"
+    _chatSpyContagem.Total = _chatSpyContagem.Total + 1
+    if teamName == "Inmates"   then _chatSpyContagem.Inmates   = _chatSpyContagem.Inmates + 1
+    elseif teamName == "Guards" then _chatSpyContagem.Guards   = _chatSpyContagem.Guards + 1
+    elseif teamName == "Criminals" then _chatSpyContagem.Criminals = _chatSpyContagem.Criminals + 1
+    else _chatSpyContagem.Outros = _chatSpyContagem.Outros + 1 end
+
+    table.insert(_chatSpyMsgs, {r=remetente, t=texto, c=cor, team=teamName, ts=GetTimestamp()})
+    if #_chatSpyMsgs > 150 then table.remove(_chatSpyMsgs, 1) end
+
+    if not DeveMostrarMensagem(remetente) then
+        AtualizarContagemChat()
+        return
+    end
 
     local linha = Instance.new("Frame")
     linha.Size              = UDim2.new(1,-8,0,0)
     linha.Position          = UDim2.new(0,4,0,0)
     linha.BackgroundTransparency = 1
     linha.AutomaticSize     = Enum.AutomaticSize.Y
+    linha.Name              = "ChatMsg"
     linha.Parent            = _chatSpyScroll
 
+    -- Fundo sutil (alterna por time)
+    if remetente ~= "SISTEMA" then
+        local bg = Instance.new("Frame")
+        bg.Size              = UDim2.new(1,0,1,0)
+        bg.BackgroundColor3  = cor
+        bg.BackgroundTransparency = 0.92
+        bg.BorderSizePixel   = 0
+        bg.ZIndex            = 0
+        bg.Parent            = linha
+        local bgc = Instance.new("UICorner")
+        bgc.CornerRadius = UDim.new(0,4)
+        bgc.Parent = bg
+    end
+
+    -- Timestamp
+    local ts = Instance.new("TextLabel")
+    ts.Size             = UDim2.new(0, 58, 0, 14)
+    ts.Position         = UDim2.new(0, 0, 0, 1)
+    ts.BackgroundTransparency = 1
+    ts.Text             = GetTimestamp()
+    ts.TextColor3       = COR_CHAT.timestamp
+    ts.Font             = Enum.Font.Gotham
+    ts.TextSize         = 9
+    ts.TextXAlignment   = Enum.TextXAlignment.Left
+    ts.Parent           = linha
+
+    -- Texto principal
     local txt = Instance.new("TextLabel")
-    txt.Size             = UDim2.new(1,0,0,0)
+    txt.Size             = UDim2.new(1,-4,0,0)
+    txt.Position         = UDim2.new(0,2,0,0)
     txt.BackgroundTransparency = 1
     txt.AutomaticSize    = Enum.AutomaticSize.Y
     txt.Text             = "[" .. remetente .. "]: " .. texto
@@ -1214,7 +1452,48 @@ local function AdicionarMensagemChatSpy(remetente, texto, cor)
     txt.TextYAlignment   = Enum.TextYAlignment.Top
     txt.Parent           = linha
 
-    -- auto scroll
+    AtualizarContagemChat()
+
+    -- Auto scroll
+    task.defer(function()
+        if _chatSpyScroll and _chatSpyScroll.Parent then
+            _chatSpyScroll.CanvasPosition = Vector2.new(0, _chatSpyScroll.AbsoluteCanvasSize.Y)
+        end
+    end)
+end
+
+local function RecriarMensagensFiltradas()
+    if not _chatSpyScroll then return end
+    -- Remove mensagens antigas
+    for _, c in ipairs(_chatSpyScroll:GetChildren()) do
+        if c:IsA("Frame") and c.Name == "ChatMsg" then c:Destroy() end
+    end
+    -- Reinsere respeitando filtro
+    for _, msg in ipairs(_chatSpyMsgs) do
+        if DeveMostrarMensagem(msg.r) then
+            local linha = Instance.new("Frame")
+            linha.Size              = UDim2.new(1,-8,0,0)
+            linha.Position          = UDim2.new(0,4,0,0)
+            linha.BackgroundTransparency = 1
+            linha.AutomaticSize     = Enum.AutomaticSize.Y
+            linha.Name              = "ChatMsg"
+            linha.Parent            = _chatSpyScroll
+
+            local txt = Instance.new("TextLabel")
+            txt.Size             = UDim2.new(1,-4,0,0)
+            txt.Position         = UDim2.new(0,2,0,0)
+            txt.BackgroundTransparency = 1
+            txt.AutomaticSize    = Enum.AutomaticSize.Y
+            txt.Text             = "[" .. msg.ts .. "] [" .. msg.r .. "]: " .. msg.t
+            txt.TextColor3       = msg.c
+            txt.Font             = Enum.Font.Gotham
+            txt.TextSize         = 11
+            txt.TextXAlignment   = Enum.TextXAlignment.Left
+            txt.TextWrapped      = true
+            txt.TextYAlignment   = Enum.TextYAlignment.Top
+            txt.Parent           = linha
+        end
+    end
     task.defer(function()
         if _chatSpyScroll and _chatSpyScroll.Parent then
             _chatSpyScroll.CanvasPosition = Vector2.new(0, _chatSpyScroll.AbsoluteCanvasSize.Y)
@@ -1233,11 +1512,15 @@ local function CriarChatSpyGUI()
     gui.Parent         = playerGui
     _chatSpyGui = gui
 
+    local vp   = Camera.ViewportSize
+    local posX = Estado.chatSpyPosX or 16
+    local posY = Estado.chatSpyPosY or (vp.Y - 260)
+
     local frame = Instance.new("Frame")
-    frame.Size              = UDim2.new(0, 360, 0, 220)
-    frame.Position          = UDim2.new(0, 16, 1, -240)
+    frame.Size              = UDim2.new(0, 370, 0, 250)
+    frame.Position          = UDim2.new(0, posX, 0, posY)
     frame.BackgroundColor3  = Color3.fromRGB(6, 8, 14)
-    frame.BackgroundTransparency = 0.1
+    frame.BackgroundTransparency = 0.08
     frame.BorderSizePixel   = 0
     frame.Parent            = gui
     _chatSpyFrame = frame
@@ -1248,37 +1531,151 @@ local function CriarChatSpyGUI()
 
     local fs = Instance.new("UIStroke")
     fs.Color = Color3.fromRGB(255,200,80)
-    fs.Thickness = 1.2
-    fs.Transparency = 0.4
+    fs.Thickness = 1.5
+    fs.Transparency = 0.3
     fs.Parent = frame
 
-    -- Titulo
+    -- ── Barra de título (arrastável) ──
     local titleBar = Instance.new("Frame")
     titleBar.Size             = UDim2.new(1,0,0,28)
     titleBar.BackgroundColor3 = Color3.fromRGB(60,40,0)
-    titleBar.BackgroundTransparency = 0.2
+    titleBar.BackgroundTransparency = 0.15
     titleBar.BorderSizePixel  = 0
+    titleBar.ZIndex           = 10
     titleBar.Parent           = frame
 
     local tc = Instance.new("UICorner")
     tc.CornerRadius = UDim.new(0,10)
     tc.Parent = titleBar
 
+    -- Ícone mover
+    local mvIcon = Instance.new("TextLabel")
+    mvIcon.Size                   = UDim2.new(0,20,1,0)
+    mvIcon.Position               = UDim2.new(0,6,0,0)
+    mvIcon.BackgroundTransparency = 1
+    mvIcon.Text                   = "✥"
+    mvIcon.TextColor3             = Color3.fromRGB(255,180,60)
+    mvIcon.Font                   = Enum.Font.GothamBold
+    mvIcon.TextSize               = 13
+    mvIcon.ZIndex                 = 11
+    mvIcon.Parent                 = titleBar
+
     local titleLbl = Instance.new("TextLabel")
-    titleLbl.Size                   = UDim2.new(1,-8,1,0)
-    titleLbl.Position               = UDim2.new(0,8,0,0)
+    titleLbl.Size                   = UDim2.new(1,-100,1,0)
+    titleLbl.Position               = UDim2.new(0,28,0,0)
     titleLbl.BackgroundTransparency = 1
     titleLbl.Text                   = "💬  CHAT SPY"
     titleLbl.TextColor3             = COR_CHAT.titulo
     titleLbl.Font                   = Enum.Font.GothamBold
     titleLbl.TextSize               = 13
     titleLbl.TextXAlignment         = Enum.TextXAlignment.Left
+    titleLbl.ZIndex                 = 11
     titleLbl.Parent                 = titleBar
 
-    -- Scroll
+    -- Botão limpar
+    local btnLimpar = Instance.new("TextButton")
+    btnLimpar.Size                   = UDim2.new(0, 28, 0, 20)
+    btnLimpar.Position               = UDim2.new(1, -58, 0, 4)
+    btnLimpar.BackgroundColor3       = Color3.fromRGB(80, 60, 0)
+    btnLimpar.BackgroundTransparency = 0.3
+    btnLimpar.Text                   = "🗑️"
+    btnLimpar.TextSize               = 11
+    btnLimpar.BorderSizePixel        = 0
+    btnLimpar.ZIndex                 = 12
+    btnLimpar.AutoButtonColor        = false
+    btnLimpar.Parent                 = titleBar
+    local blc = Instance.new("UICorner")
+    blc.CornerRadius = UDim.new(0,5)
+    blc.Parent = btnLimpar
+
+    -- Botão fechar
+    local btnClose2 = Instance.new("TextButton")
+    btnClose2.Size                   = UDim2.new(0, 22, 0, 20)
+    btnClose2.Position               = UDim2.new(1, -28, 0, 4)
+    btnClose2.BackgroundColor3       = Color3.fromRGB(160,30,30)
+    btnClose2.BackgroundTransparency = 0.3
+    btnClose2.Text                   = "✕"
+    btnClose2.TextColor3             = Color3.new(1,1,1)
+    btnClose2.Font                   = Enum.Font.GothamBold
+    btnClose2.TextSize               = 11
+    btnClose2.BorderSizePixel        = 0
+    btnClose2.ZIndex                 = 12
+    btnClose2.AutoButtonColor        = false
+    btnClose2.Parent                 = titleBar
+    local btcc = Instance.new("UICorner")
+    btcc.CornerRadius = UDim.new(0,5)
+    btcc.Parent = btnClose2
+
+    -- ── Barra de filtros ──
+    local filtroBar = Instance.new("Frame")
+    filtroBar.Size              = UDim2.new(1,0,0,26)
+    filtroBar.Position          = UDim2.new(0,0,0,28)
+    filtroBar.BackgroundColor3  = Color3.fromRGB(12,12,20)
+    filtroBar.BackgroundTransparency = 0.2
+    filtroBar.BorderSizePixel   = 0
+    filtroBar.Parent            = frame
+
+    local filtros = { "Todos", "Inmates", "Guards", "Criminals", "Outros" }
+    local filtroW = 370 / #filtros
+    local filtroButtons = {}
+
+    for i, f in ipairs(filtros) do
+        local btn = Instance.new("TextButton")
+        btn.Size                   = UDim2.new(0, filtroW - 4, 0, 20)
+        btn.Position               = UDim2.new(0, (i-1)*filtroW + 2, 0, 3)
+        btn.BackgroundColor3       = f == "Todos" and Color3.fromRGB(60,40,10) or Color3.fromRGB(20,20,30)
+        btn.BackgroundTransparency = 0.3
+        btn.Text                   = f
+        btn.TextColor3             = Color3.fromRGB(200,200,200)
+        btn.Font                   = Enum.Font.GothamBold
+        btn.TextSize               = 10
+        btn.BorderSizePixel        = 0
+        btn.AutoButtonColor        = false
+        btn.Parent                 = filtroBar
+        local bc = Instance.new("UICorner")
+        bc.CornerRadius = UDim.new(0,4)
+        bc.Parent = btn
+        filtroButtons[f] = btn
+
+        btn.MouseButton1Click:Connect(function()
+            Estado.chatSpyFiltro = f
+            for _, fb in pairs(filtroButtons) do
+                fb.BackgroundColor3       = Color3.fromRGB(20,20,30)
+                fb.BackgroundTransparency = 0.3
+                fb.TextColor3             = Color3.fromRGB(200,200,200)
+            end
+            btn.BackgroundColor3       = Color3.fromRGB(60,40,10)
+            btn.BackgroundTransparency = 0.1
+            btn.TextColor3             = Color3.fromRGB(255,200,80)
+            RecriarMensagensFiltradas()
+        end)
+    end
+
+    -- ── Contagem ──
+    local contFrame = Instance.new("Frame")
+    contFrame.Size              = UDim2.new(1,0,0,16)
+    contFrame.Position          = UDim2.new(0,0,0,54)
+    contFrame.BackgroundColor3  = Color3.fromRGB(10,10,18)
+    contFrame.BackgroundTransparency = 0.3
+    contFrame.BorderSizePixel   = 0
+    contFrame.Parent            = frame
+
+    local contLbl = Instance.new("TextLabel")
+    contLbl.Size                   = UDim2.new(1,-8,1,0)
+    contLbl.Position               = UDim2.new(0,4,0,0)
+    contLbl.BackgroundTransparency = 1
+    contLbl.Text                   = "📊 Aguardando mensagens..."
+    contLbl.TextColor3             = Color3.fromRGB(150,150,180)
+    contLbl.Font                   = Enum.Font.Gotham
+    contLbl.TextSize               = 9
+    contLbl.TextXAlignment         = Enum.TextXAlignment.Left
+    contLbl.Parent                 = contFrame
+    _chatContLabel = contLbl
+
+    -- ── Scroll de mensagens ──
     local scroll = Instance.new("ScrollingFrame")
-    scroll.Size                  = UDim2.new(1,-4,1,-32)
-    scroll.Position              = UDim2.new(0,2,0,30)
+    scroll.Size                  = UDim2.new(1,-4,1,-76)
+    scroll.Position              = UDim2.new(0,2,0,72)
     scroll.BackgroundTransparency = 1
     scroll.BorderSizePixel       = 0
     scroll.ScrollBarThickness    = 4
@@ -1289,48 +1686,117 @@ local function CriarChatSpyGUI()
     _chatSpyScroll = scroll
 
     local layout = Instance.new("UIListLayout")
-    layout.Padding           = UDim.new(0,3)
-    layout.FillDirection     = Enum.FillDirection.Vertical
+    layout.Padding             = UDim.new(0,2)
+    layout.FillDirection       = Enum.FillDirection.Vertical
     layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-    layout.Parent            = scroll
+    layout.Parent              = scroll
 
-    AdicionarMensagemChatSpy("SISTEMA", "Chat Spy ativado!", COR_CHAT.sistema)
+    -- ── Handle redimensionar ──
+    local resizeHandle2 = Instance.new("TextButton")
+    resizeHandle2.Size                   = UDim2.new(0,18,0,18)
+    resizeHandle2.Position               = UDim2.new(1,-18,1,-18)
+    resizeHandle2.BackgroundColor3       = Color3.fromRGB(100,80,0)
+    resizeHandle2.BackgroundTransparency = 0.4
+    resizeHandle2.Text                   = "⊿"
+    resizeHandle2.TextColor3             = Color3.fromRGB(255,200,80)
+    resizeHandle2.Font                   = Enum.Font.GothamBold
+    resizeHandle2.TextSize               = 11
+    resizeHandle2.BorderSizePixel        = 0
+    resizeHandle2.ZIndex                 = 15
+    resizeHandle2.AutoButtonColor        = false
+    resizeHandle2.Parent                 = frame
+    local resizeC2 = Instance.new("UICorner")
+    resizeC2.CornerRadius = UDim.new(0,4)
+    resizeC2.Parent = resizeHandle2
+
+    local resizeDrag2  = false
+    local resizeStart2 = nil
+    local resizeStartSZ2 = nil
+
+    resizeHandle2.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            resizeDrag2    = true
+            resizeStart2   = input.Position
+            resizeStartSZ2 = frame.AbsoluteSize
+        end
+    end)
+    resizeHandle2.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            resizeDrag2 = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not resizeDrag2 then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local delta  = input.Position - resizeStart2
+        local newW   = math.clamp(resizeStartSZ2.X + delta.X, 280, 600)
+        local newH   = math.clamp(resizeStartSZ2.Y + delta.Y, 160, 500)
+        frame.Size   = UDim2.new(0, newW, 0, newH)
+    end)
+
+    -- ── Arrastar ──
+    FazerArrastavel(frame, titleBar, function(pos)
+        Estado.chatSpyPosX = pos.X.Offset
+        Estado.chatSpyPosY = pos.Y.Offset
+    end)
+
+    -- ── Botões ──
+    btnLimpar.MouseButton1Click:Connect(function()
+        for _, c in ipairs(scroll:GetChildren()) do
+            if c:IsA("Frame") then c:Destroy() end
+        end
+        _chatSpyMsgs = {}
+        _chatSpyContagem = { Inmates=0, Guards=0, Criminals=0, Outros=0, Total=0 }
+        AtualizarContagemChat()
+        AdicionarMensagemChatSpy("SISTEMA", "Chat limpo.", COR_CHAT.sistema_msg, "Outros")
+    end)
+
+    btnClose2.MouseButton1Click:Connect(function()
+        Estado.chatSpyAtivo = false
+        PararChatSpy()
+    end)
+
+    AdicionarMensagemChatSpy("SISTEMA", "Chat Spy ativado! Use os filtros acima.", COR_CHAT.sistema_msg, "Outros")
 end
 
 local function RemoverChatSpyGUI()
-    if _chatSpyConn then _chatSpyConn:Disconnect(); _chatSpyConn = nil end
+    if _chatSpyConn then
+        pcall(function() _chatSpyConn:Disconnect() end)
+        _chatSpyConn = nil
+    end
     if _chatSpyGui and _chatSpyGui.Parent then _chatSpyGui:Destroy() end
     _chatSpyGui    = nil
     _chatSpyFrame  = nil
     _chatSpyScroll = nil
+    _chatContLabel = nil
 end
 
 local function IniciarChatSpy()
     CriarChatSpyGUI()
 
-    -- Tenta capturar via TextChatService
-    local ok, err = pcall(function()
-        local channel = TextChatService:FindFirstChildOfClass("TextChannel")
-            or TextChatService:WaitForChild("TextChannels", 2)
-        if channel then
-            _chatSpyConn = TextChatService.MessageReceived:Connect(function(msg)
-                local autor = msg.TextSource and msg.TextSource.Name or "?"
-                local plr = Players:FindFirstChild(autor)
-                local nome = plr and plr.Name or autor
-                local cor = (nome == LocalPlayer.Name) and COR_CHAT.local_ or COR_CHAT.outro
-                AdicionarMensagemChatSpy(nome, msg.Text or "", cor)
-            end)
-        end
+    local ok, _ = pcall(function()
+        _chatSpyConn = TextChatService.MessageReceived:Connect(function(msg)
+            if not Estado.chatSpyAtivo then return end
+            local autor = msg.TextSource and msg.TextSource.Name or "?"
+            local plr   = Players:FindFirstChild(autor)
+            local nome  = plr and plr.Name or autor
+            local cor   = GetCorChat(plr)
+            local team  = (plr and plr.Team and plr.Team.Name) or "Outros"
+            AdicionarMensagemChatSpy(nome, msg.Text or "", cor, team)
+        end)
     end)
 
-    -- Fallback: escutar via Players.PlayerChatted (legado)
     if not ok or not _chatSpyConn then
         local conns = {}
         local function EscutarJogador(plr)
             local c = plr.Chatted:Connect(function(msg)
                 if not Estado.chatSpyAtivo then return end
-                local cor = (plr == LocalPlayer) and COR_CHAT.local_ or COR_CHAT.outro
-                AdicionarMensagemChatSpy(plr.Name, msg, cor)
+                local cor  = GetCorChat(plr)
+                local team = (plr.Team and plr.Team.Name) or "Outros"
+                AdicionarMensagemChatSpy(plr.Name, msg, cor, team)
             end)
             table.insert(conns, c)
         end
@@ -1352,22 +1818,10 @@ local function PararChatSpy()
     RemoverChatSpyGUI()
 end
 
--- ─── MISC (Ping, Time, Contadores) ────────────────────────────────────────────
--- (Essas informações são exibidas na aba Misc com atualização automática)
+-- ─── MISC Stats ────────────────────────────────────────────────────────────────
 
-local _miscStats = {
-    ping    = 0,
-    time    = "?",
-    players = 0,
-    fps     = 0,
-}
-
--- Atualiza estatísticas continuamente
 RunService.RenderStepped:Connect(function()
-    _miscStats.ping    = math.floor(LocalPlayer:GetNetworkPing() * 1000)
-    _miscStats.time    = LocalPlayer.Team and LocalPlayer.Team.Name or "Sem time"
-    _miscStats.players = #Players:GetPlayers()
-    _miscStats.fps     = math.floor(1 / RunService.RenderStepped:Wait())
+    -- placeholder: stats atualizados nos labels abaixo
 end)
 
 -- ─── Spawn / CharacterAdded ────────────────────────────────────────────────────
@@ -1378,7 +1832,9 @@ LocalPlayer.CharacterAdded:Connect(function()
     AplicarWalkSpeed()
 end)
 
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- ─── Hub ───────────────────────────────────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════════════════
 
 local site = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/UnityDvloper/Codes/refs/heads/main/Hub.lua",
@@ -1877,14 +2333,13 @@ local abaRadar = hub:CriarAba("Radar", "📡")
 
 abaRadar:CriarSecao("Controle")
 
-abaRadar:CriarTexto("Tecla M: alterna entre expandido e minimizado quando o radar estiver ativo.")
+abaRadar:CriarTexto("Arraste pela barra de titulo para mover.\nCanto ⊿ para redimensionar.\nBotoes — e ✕ para minimizar/fechar.")
 
 abaRadar:CriarToggle("Radar Ativo", Estado.radarAtivo, function(v)
     Estado.radarAtivo = v
     if v then
-        Estado.radarMinimizado = false
         CriarRadar()
-        hub:Notificar("Radar", "Radar ativado! [M] para minimizar", "sucesso", 3)
+        hub:Notificar("Radar", "Radar ativado!", "sucesso", 2)
     else
         RemoverRadar()
         hub:Notificar("Radar", "Radar desativado", "info", 2)
@@ -1897,30 +2352,21 @@ abaRadar:CriarSlider("Zoom do Radar", 1, 30, math.floor(Estado.radarZoom * 100),
     Estado.radarZoom = v / 100
 end, { unidade = "%" })
 
-abaRadar:CriarSlider("Tamanho", 120, 350, Estado.radarTamanho, function(v)
+abaRadar:CriarSlider("Tamanho Inicial", 120, 450, Estado.radarTamanho, function(v)
     Estado.radarTamanho = v
     if Estado.radarAtivo then
-        CriarRadar() -- recria com novo tamanho
+        CriarRadar()
     end
 end, { unidade = "px" })
 
--- Keybind M para radar
-local kbRadar = abaRadar:CriarTeclaDeAtalho("Radar (expandir/minimizar)", Enum.KeyCode.M, function()
-    if not Estado.radarAtivo then
-        -- Ativa o radar se nao estava ativo
-        Estado.radarAtivo      = true
-        Estado.radarMinimizado = false
+abaRadar:CriarBotao("Resetar Posicao", function()
+    Estado.radarPosX = nil
+    Estado.radarPosY = nil
+    if Estado.radarAtivo then
         CriarRadar()
-        hub:Notificar("Radar", "Radar ativado!", "sucesso", 2)
-    else
-        -- Alterna minimizado/expandido
-        Estado.radarMinimizado = not Estado.radarMinimizado
-        AtualizarVisibilidadeRadar()
-        if Estado.radarMinimizado then
-            hub:Notificar("Radar", "Radar minimizado", "info", 1)
-        end
+        hub:Notificar("Radar", "Posicao resetada!", "info", 2)
     end
-end)
+end, { icone = "📍" })
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- ABA MISC
@@ -1930,7 +2376,7 @@ local abaMisc = hub:CriarAba("Misc", "🔧")
 
 abaMisc:CriarSecao("Chat Spy")
 
-abaMisc:CriarTexto("Exibe todos os chats do servidor em uma janela separada.")
+abaMisc:CriarTexto("Exibe todos os chats do servidor.\nArraste pela barra de titulo | ⊿ para redimensionar.\nFiltros por time e timestamps inclusos.")
 
 abaMisc:CriarToggle("Chat Spy", Estado.chatSpyAtivo, function(v)
     Estado.chatSpyAtivo = v
@@ -1943,32 +2389,37 @@ abaMisc:CriarToggle("Chat Spy", Estado.chatSpyAtivo, function(v)
     end
 end)
 
+abaMisc:CriarBotao("Resetar Posicao Chat Spy", function()
+    Estado.chatSpyPosX = nil
+    Estado.chatSpyPosY = nil
+    if Estado.chatSpyAtivo then
+        PararChatSpy()
+        IniciarChatSpy()
+        hub:Notificar("Chat Spy", "Posicao resetada!", "info", 2)
+    end
+end, { icone = "📍" })
+
 abaMisc:CriarSecao("Informacoes ao Vivo")
 
--- Labels de stats que são atualizados continuamente
-local lblPing  = abaMisc:CriarTexto("🔴 Ping: carregando...")
-local lblTime  = abaMisc:CriarTexto("🏷️ Time: carregando...")
-local lblPlrs  = abaMisc:CriarTexto("👥 Jogadores: carregando...")
-local lblFPS   = abaMisc:CriarTexto("⚡ FPS: carregando...")
+local lblPing = abaMisc:CriarTexto("🔴 Ping: carregando...")
+local lblTime = abaMisc:CriarTexto("🏷️ Time: carregando...")
+local lblPlrs = abaMisc:CriarTexto("👥 Jogadores: carregando...")
+local lblFPS  = abaMisc:CriarTexto("⚡ FPS: carregando...")
 
--- Atualiza os labels automaticamente
-local _ultimoPing  = -1
-local _ultimoTime  = ""
-local _ultimoPlrs  = -1
+local _ultimoPing = -1
+local _ultimoTime = ""
+local _ultimoPlrs = -1
 
 RunService.RenderStepped:Connect(function()
-    -- Ping: atualiza so se mudar significativamente (+/- 5ms)
     local ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
     if math.abs(ping - _ultimoPing) >= 5 then
         _ultimoPing = ping
-        local corPing = ping < 80 and "verde" or ping < 150 and "amarelo" or "vermelho"
         local icoPing = ping < 80 and "🟢" or ping < 150 and "🟡" or "🔴"
         if lblPing and lblPing.AtualizarTexto then
             lblPing:AtualizarTexto(icoPing .. " Ping: " .. ping .. "ms")
         end
     end
 
-    -- Time: atualiza so se mudar
     local time = LocalPlayer.Team and LocalPlayer.Team.Name or "Sem time"
     if time ~= _ultimoTime then
         _ultimoTime = time
@@ -1978,7 +2429,6 @@ RunService.RenderStepped:Connect(function()
         hub:Notificar("Misc", "Time mudou: " .. time, "aviso", 3)
     end
 
-    -- Jogadores: atualiza so se mudar
     local plrs = #Players:GetPlayers()
     if plrs ~= _ultimoPlrs then
         _ultimoPlrs = plrs
@@ -1988,7 +2438,6 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- FPS: atualiza a cada 1s
 task.spawn(function()
     while true do
         task.wait(1)
@@ -2012,12 +2461,15 @@ hub:CriarDropdownTemas(abaConfig)
 
 abaConfig:CriarSecao("Atalhos de Teclado")
 
-abaConfig:CriarTexto("K = Abrir/Fechar Hub\nM = Radar (expandir/minimizar)")
-
--- Keybind principal: K = abrir/fechar hub
-local kbHub = abaConfig:CriarTeclaDeAtalho("Abrir/Fechar Hub", Enum.KeyCode.K, function()
-    hub:AlternarVisibilidade()
-end)
+-- Keybind hub: só aparece no PC
+if not UserInputService.TouchEnabled then
+    abaConfig:CriarTexto("K = Abrir/Fechar Hub")
+    local kbHub = abaConfig:CriarTeclaDeAtalho("Abrir/Fechar Hub", Enum.KeyCode.K, function()
+        hub:AlternarVisibilidade()
+    end)
+else
+    abaConfig:CriarTexto("Use o botão flutuante para abrir/fechar o Hub.")
+end
 
 -- ─── Atualizar listas quando jogadores entram/saem ────────────────────────────
 
